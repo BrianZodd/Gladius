@@ -109,5 +109,19 @@ class SetterLogicTests(unittest.TestCase):
         self.assertEqual(calls, [Path("C:/fake/current.png")])
 
 
+class RandomPickTests(unittest.TestCase):
+    def test_avoids_current_when_possible(self):
+        a, b = Path(r"C:\w\a.jpg"), Path(r"C:\w\b.jpg")
+        for _ in range(20):
+            self.assertEqual(gladius.pick_random([a, b], str(a.resolve())), b)
+
+    def test_single_file_still_returned(self):
+        a = Path(r"C:\w\a.jpg")
+        self.assertEqual(gladius.pick_random([a], str(a.resolve())), a)
+
+    def test_empty_returns_none(self):
+        self.assertIsNone(gladius.pick_random([], ""))
+
+
 if __name__ == "__main__":
     unittest.main()

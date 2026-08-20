@@ -254,3 +254,62 @@ def select_wallpaper(path: Path, cfg: Config) -> bool:
                                      | subprocess.DETACHED_PROCESS)
         return True                      # parity with commands.sh: fire-and-forget
     return set_wallpaper(path, cfg.fit_mode)
+
+
+# --------------------------------------------------------------------------- #
+# CLI entry, single instance, --random
+# --------------------------------------------------------------------------- #
+
+def acquire_single_instance() -> bool:
+    """False when an overlay is already open. The handle is intentionally leaked:
+    the OS releases the mutex when this process exits."""
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateMutexW(None, False, "GladiusWallpaperPicker")
+    return ctypes.get_last_error() != 183     # ERROR_ALREADY_EXISTS
+
+
+def pick_random(files: list[Path], avoid: str) -> Path | None:
+    if not files:
+        return None
+    pool = [p for p in files if str(p.resolve()) != avoid] or files
+    return random.choice(pool)
+
+
+def run_overlay(cfg: Config) -> int:          # replaced wholesale in Stage 6
+    print("overlay not built yet (stage 6)")
+    return 2
+
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="gladius",
+                                 description="Keyboard-driven wallpaper picker overlay.")
+    ap.add_argument("--random", action="store_true",
+                    help="set a random wallpaper and exit (no UI)")
+    ap.add_argument("--config", action="store_true",
+                    help="print the config file path and exit")
+    ap.add_argument("--windowed", action="store_true", help=argparse.SUPPRESS)  # debug
+    args = ap.parse_args(argv)
+
+    if args.config:
+        print(CONFIG_PATH)
+        return 0
+
+    cfg = Config.load()
+
+    if args.random:
+        from PySide6.QtGui import QGuiApplication   # transcode path needs a Qt app
+        _app = QGuiApplication([])
+        choice = pick_random(scan_wallpapers(cfg), get_current_wallpaper())
+        if choice is None:
+            print(f"no wallpapers found in {cfg.wallpaper_path}", file=sys.stderr)
+            return 1
+        return 0 if select_wallpaper(choice, cfg) else 1
+
+    if not acquire_single_instance():
+        return 0                              # an overlay is already open — do nothing
+    cfg._windowed = args.windowed             # debug flag rides on the instance
+    return run_overlay(cfg)
+
+
+if __name__ == "__main__":
+    sys.exit(main())
