@@ -50,5 +50,36 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.backdrop, "dim")
 
 
+class ScanTests(unittest.TestCase):
+    def test_recursive_scan_filters_and_sorts(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "sub").mkdir()
+            (root / "b.jpg").write_bytes(b"x")
+            (root / "sub" / "a.PNG").write_bytes(b"x")
+            (root / "notes.txt").write_bytes(b"x")
+            cfg = gladius.Config(wallpaper_path=d, recursive=True)
+            names = [p.name for p in gladius.scan_wallpapers(cfg)]
+            self.assertEqual(names, ["b.jpg", "a.PNG"])  # sorted by full lowered path
+            cfg2 = gladius.Config(wallpaper_path=d, recursive=False)
+            self.assertEqual([p.name for p in gladius.scan_wallpapers(cfg2)], ["b.jpg"])
+
+    def test_missing_dir_returns_empty(self):
+        cfg = gladius.Config(wallpaper_path=r"C:\definitely\not\here")
+        self.assertEqual(gladius.scan_wallpapers(cfg), [])
+
+
+class ThumbKeyTests(unittest.TestCase):
+    def test_key_changes_with_content(self):
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "w.jpg"
+            f.write_bytes(b"one")
+            k1 = gladius.thumb_key(f)
+            f.write_bytes(b"three!")      # different size ⇒ different key even if mtime ties
+            k2 = gladius.thumb_key(f)
+            self.assertNotEqual(k1, k2)
+            self.assertTrue(k1.endswith(".jpg"))
+
+
 if __name__ == "__main__":
     unittest.main()

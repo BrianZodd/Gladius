@@ -18,6 +18,9 @@ from ctypes import wintypes
 from dataclasses import dataclass, asdict, fields
 from pathlib import Path
 
+from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal
+from PySide6.QtGui import QImage
+
 CONFIG_DIR = Path(os.environ["APPDATA"]) / "Gladius"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 DATA_DIR = Path(os.environ["LOCALAPPDATA"]) / "Gladius"
@@ -91,3 +94,89 @@ class Config:
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
         CONFIG_PATH.write_text(json.dumps(asdict(self), indent=2), encoding="utf-8")
+
+
+# --------------------------------------------------------------------------- #
+# Scan & thumbnail cache
+# --------------------------------------------------------------------------- #
+
+WALLPAPER_EXTS = frozenset(
+    {".jpg", ".jpeg", ".jfif", ".png", ".bmp", ".webp", ".gif", ".avif"})
+
+
+def scan_wallpapers(cfg: Config) -> list[Path]:
+    """Every image under the wallpaper folder, sorted stably. Read-only."""
+    root = Path(cfg.wallpaper_path)
+    if not root.is_dir():
+        return []
+    it = root.rglob("*") if cfg.recursive else root.glob("*")
+    files = [p for p in it if p.is_file() and p.suffix.lower() in WALLPAPER_EXTS]
+    return sorted(files, key=lambda p: str(p).lower())
+
+
+def thumb_key(p: Path) -> str:
+    """sha1(abs_path | mtime_ns | size).
+
+    Any rename, move, or edit yields a new key — which is what kills the
+    reference implementation's stale-thumbnail and basename-collision bugs.
+    """
+    st = p.stat()
+    raw = f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}"
+    return hashlib.sha1(raw.encode("utf-8", "surrogatepass")).hexdigest() + ".jpg"
+
+
+class _ThumbSignals(QObject):
+    done = Signal(int)
+
+
+class _ThumbWorker(QRunnable):
+    def __init__(self, index: int, src: Path, dst: Path, signals: _ThumbSignals):
+        super().__init__()
+        self.index, self.src, self.dst, self.signals = index, src, dst, signals
+
+    def run(self) -> None:
+        try:
+            img = QImage(str(self.src))
+            if img.isNull():
+                return
+            scaled = img.scaledToHeight(THUMB_HEIGHT, Qt.SmoothTransformation)
+            scaled.save(str(self.dst), "JPG", 85)
+            self.signals.done.emit(self.index)
+        except Exception:
+            pass  # a broken image just keeps its placeholder
+
+
+class ThumbCache(QObject):
+    """One worker per image, pool width = cache_batch_size.
+
+    Workers signal the tile index as each thumb lands, so the UI repaints exactly
+    one tile — no polling, and no blank first run.
+    """
+
+    thumb_ready = Signal(int)
+
+    def __init__(self, files: list[Path], batch: int):
+        super().__init__()
+        self.files = files
+        self.keys = [thumb_key(p) for p in files]
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(max(1, batch))
+        self._signals = _ThumbSignals()
+        self._signals.done.connect(self.thumb_ready)
+
+    def thumb_path(self, i: int) -> Path:
+        return THUMB_DIR / self.keys[i]
+
+    def start(self) -> None:
+        THUMB_DIR.mkdir(parents=True, exist_ok=True)
+        expected = set(self.keys)
+        for stale in THUMB_DIR.iterdir():        # prune orphans (renamed/edited/deleted)
+            if stale.name not in expected:
+                try:
+                    stale.unlink()
+                except OSError:
+                    pass
+        for i, src in enumerate(self.files):
+            dst = self.thumb_path(i)
+            if not dst.exists():
+                self.pool.start(_ThumbWorker(i, src, dst, self._signals))
