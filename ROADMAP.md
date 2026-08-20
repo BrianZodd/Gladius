@@ -23,7 +23,7 @@
   live; wallpapers live in **subfolders** (scan must be recursive).
 - **Git**: repo initialized 2026-08-20; single planning commit on `main` (docs scaffold +
   SPEC.md + BLUEPRINT.md). No remote yet.
-- **Blueprint**: BLUEPRINT.md — stage 0/9 not started, next: Stage 0.
+- **Blueprint**: BLUEPRINT.md — stage 0/9 done, next: Stage R.
 
 ## Mission & phases
 
