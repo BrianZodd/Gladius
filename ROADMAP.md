@@ -21,7 +21,7 @@
 - **Gotchas**: whkd reads its config at startup only (restart after editing whkdrc);
   komorebi runs elevated and will fight any managed window — `Qt.Tool` must be verified
   live; wallpapers live in **subfolders** (scan must be recursive).
-- **Git**: repo initialized 2026-08-20; single planning commit on `master` (docs scaffold +
+- **Git**: repo initialized 2026-08-20; single planning commit on `main` (docs scaffold +
   SPEC.md + BLUEPRINT.md). No remote yet.
 - **Blueprint**: BLUEPRINT.md — stage 0/9 not started, next: Stage 0.
 
