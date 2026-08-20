@@ -18,8 +18,10 @@ from ctypes import wintypes
 from dataclasses import dataclass, asdict, fields
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QRunnable, QThreadPool, Qt, Signal
-from PySide6.QtGui import QImage
+from PySide6.QtCore import (QEasingCurve, QObject, QPointF, QRectF, QRunnable,
+                            QThreadPool, Qt, QVariantAnimation, Signal)
+from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
+from PySide6.QtWidgets import QWidget
 
 CONFIG_DIR = Path(os.environ["APPDATA"]) / "Gladius"
 CONFIG_PATH = CONFIG_DIR / "config.json"
@@ -254,6 +256,177 @@ def select_wallpaper(path: Path, cfg: Config) -> bool:
                                      | subprocess.DETACHED_PROCESS)
         return True                      # parity with commands.sh: fire-and-forget
     return set_wallpaper(path, cfg.fit_mode)
+
+
+# --------------------------------------------------------------------------- #
+# StripView — the horizontal strip of tiles (one widget, one paintEvent)
+# --------------------------------------------------------------------------- #
+
+SPACING = 4
+SHEAR_X = -0.25          # the reference implementation's parallelogram lean
+DRAG_THRESHOLD = 5       # px of motion that turns a click into a drag
+
+
+class StripView(QWidget):
+    index_changed = Signal(int)
+    picked = Signal(int)
+
+    def __init__(self, files, cache, cfg, parent=None):
+        super().__init__(parent)
+        self.files, self.cache, self.cfg = files, cache, cfg
+        self.index = 0
+        self.content_x = 0.0
+        self._pixmaps: dict[int, QPixmap] = {}
+        self._anim = QVariantAnimation(self)
+        self._anim.setDuration(100)
+        self._anim.setEasingCurve(QEasingCurve.OutCubic)
+        self._anim.valueChanged.connect(self._on_anim)
+        self._drag_origin: QPointF | None = None
+        self._drag_start_x = 0.0
+        self._dragging = False
+        self.setFocusPolicy(Qt.NoFocus)      # keys are handled by the overlay
+        cache.thumb_ready.connect(self.on_thumb_ready)
+
+    # --- geometry ---
+    def tile_w(self) -> float:
+        return self.width() / self.cfg.number_of_pictures - 10
+
+    def step(self) -> float:
+        return self.tile_w() + SPACING
+
+    def content_width(self) -> float:
+        return len(self.files) * self.step() - SPACING
+
+    def _clamp_x(self, x: float) -> float:
+        return max(0.0, min(x, self.content_width() - self.width()))
+
+    def _clamp_index(self, i: int) -> int:
+        return max(0, min(i, len(self.files) - 1))
+
+    def _ensure_visible(self, i: int) -> None:
+        step = self.step()
+        item_start = i * step
+        item_end = item_start + self.tile_w() + 20
+        if item_start < self.content_x:
+            self._animate_to(self._clamp_x(item_start))
+        elif item_end > self.content_x + self.width():
+            self._animate_to(self._clamp_x(item_start - (self.width() - step)))
+
+    def _animate_to(self, x: float) -> None:
+        self._anim.stop()
+        self._anim.setStartValue(self.content_x)
+        self._anim.setEndValue(x)
+        self._anim.start()
+
+    def _on_anim(self, v) -> None:
+        self.content_x = float(v)
+        self.update()
+
+    # --- selection API (the overlay calls these) ---
+    def set_index(self, i: int) -> None:
+        self.index = self._clamp_index(i)
+        self._ensure_visible(self.index)
+        self.index_changed.emit(self.index)
+        self.update()
+
+    def move(self, delta: int) -> None:
+        self.set_index(self.index + delta)
+
+    def page(self, delta: int) -> None:
+        self.set_index(self.index + delta * self.cfg.number_of_pictures)
+
+    def relayout(self) -> None:
+        self.content_x = self._clamp_x(self.content_x)
+        self._ensure_visible(self.index)
+        self.update()
+
+    def on_thumb_ready(self, i: int) -> None:
+        self._pixmaps.pop(i, None)           # drop the remembered placeholder-miss
+        self.update()
+
+    # --- painting ---
+    def _pixmap(self, i: int) -> QPixmap | None:
+        pm = self._pixmaps.get(i)
+        if pm is not None:
+            return pm or None                # cached null → still loading
+        path = self.cache.thumb_path(i)
+        if path.exists():
+            pm = QPixmap(str(path))
+            self._pixmaps[i] = pm
+            return pm
+        self._pixmaps[i] = QPixmap()         # remember the miss until thumb_ready
+        return None
+
+    def paintEvent(self, ev) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.SmoothPixmapTransform)
+        tw, th = self.tile_w(), float(self.height())
+        step = self.step()
+        first = max(0, int(self.content_x // step) - 1)
+        last = min(len(self.files) - 1,
+                   int((self.content_x + self.width()) // step) + 1)
+        for i in range(first, last + 1):
+            x = i * step - self.content_x
+            p.save()
+            p.translate(x, 0)
+            if self.cfg.shear:
+                p.shear(SHEAR_X, 0)
+            p.setClipRect(QRectF(0, 0, tw, th))
+            pm = self._pixmap(i)
+            if pm and not pm.isNull():
+                # PreserveAspectCrop: source rect matches tile aspect, centered
+                tile_ar = tw / th
+                src_ar = pm.width() / pm.height()
+                if src_ar > tile_ar:
+                    sh = pm.height()
+                    sw = sh * tile_ar
+                else:
+                    sw = pm.width()
+                    sh = sw / tile_ar
+                src = QRectF((pm.width() - sw) / 2, (pm.height() - sh) / 2, sw, sh)
+                p.drawPixmap(QRectF(0, 0, tw, th), pm, src)
+            else:
+                p.fillRect(QRectF(0, 0, tw, th), QColor(255, 255, 255, 18))
+                p.setPen(QColor(self.cfg.border_color))
+                p.drawText(QRectF(0, 0, tw, th), Qt.AlignCenter, "Loading…")
+            if i == self.index:
+                pen = QPen(QColor(self.cfg.border_color))
+                pen.setWidth(4)
+                p.setPen(pen)
+                p.drawRect(QRectF(2, 2, tw - 4, th - 4))
+            p.restore()
+        p.end()
+
+    # --- mouse (parity: wheel scrolls, drag scrolls, click selects) ---
+    def wheelEvent(self, ev) -> None:
+        self._anim.stop()
+        self.content_x = self._clamp_x(self.content_x - ev.angleDelta().y() * 2)
+        self.update()
+
+    def mousePressEvent(self, ev) -> None:
+        self._drag_origin = ev.position()
+        self._drag_start_x = self.content_x
+        self._dragging = False
+
+    def mouseMoveEvent(self, ev) -> None:
+        if self._drag_origin is None:
+            return
+        dx = ev.position().x() - self._drag_origin.x()
+        if abs(dx) > DRAG_THRESHOLD:
+            self._dragging = True
+        if self._dragging:
+            self._anim.stop()
+            self.content_x = self._clamp_x(self._drag_start_x - dx)
+            self.update()
+
+    def mouseReleaseEvent(self, ev) -> None:
+        if self._drag_origin is not None and not self._dragging:
+            i = int((self.content_x + ev.position().x()) // self.step())
+            if 0 <= i < len(self.files):
+                self.set_index(i)
+                self.picked.emit(i)
+        self._drag_origin = None
+        self._dragging = False
 
 
 # --------------------------------------------------------------------------- #
