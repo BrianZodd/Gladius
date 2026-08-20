@@ -20,8 +20,9 @@ from pathlib import Path
 
 from PySide6.QtCore import (QEasingCurve, QObject, QPointF, QRectF, QRunnable,
                             QThreadPool, Qt, QVariantAnimation, Signal)
-from PySide6.QtGui import QColor, QImage, QPainter, QPen, QPixmap
-from PySide6.QtWidgets import QWidget
+from PySide6.QtGui import (QColor, QCursor, QGuiApplication, QImage, QKeyEvent,
+                           QPainter, QPen, QPixmap)
+from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
 CONFIG_DIR = Path(os.environ["APPDATA"]) / "Gladius"
 CONFIG_PATH = CONFIG_DIR / "config.json"
@@ -430,6 +431,154 @@ class StripView(QWidget):
 
 
 # --------------------------------------------------------------------------- #
+# Overlay window
+# --------------------------------------------------------------------------- #
+
+ACCENT_ENABLE_ACRYLICBLURBEHIND = 4
+WCA_ACCENT_POLICY = 19
+ACRYLIC_TINT = 0x30000000        # AABBGGRR — light enough to leave the blur visible
+
+
+class _ACCENT_POLICY(ctypes.Structure):
+    _fields_ = [("AccentState", ctypes.c_int), ("AccentFlags", ctypes.c_int),
+                ("GradientColor", ctypes.c_uint), ("AnimationId", ctypes.c_int)]
+
+
+class _WINCOMPATTRDATA(ctypes.Structure):
+    _fields_ = [("Attribute", ctypes.c_int), ("Data", ctypes.c_void_p),
+                ("SizeOfData", ctypes.c_size_t)]
+
+
+def enable_acrylic(hwnd: int) -> bool:
+    """Turn on Windows' acrylic blur-behind for this window.
+
+    Uses SetWindowCompositionAttribute — the documented DWM system-backdrop
+    attribute reports success but paints a flat opaque panel on a frameless
+    layered window, so it is deliberately not used (see RESEARCH-notes.md, R1).
+    Qt's WA_TranslucentBackground stays on. Returns False on any failure, and the
+    overlay silently falls back to the dim backdrop.
+    """
+    try:
+        fn = ctypes.windll.user32.SetWindowCompositionAttribute
+        fn.argtypes = [wintypes.HWND, ctypes.POINTER(_WINCOMPATTRDATA)]
+        fn.restype = ctypes.c_int
+        accent = _ACCENT_POLICY(ACCENT_ENABLE_ACRYLICBLURBEHIND, 2, ACRYLIC_TINT, 0)
+        data = _WINCOMPATTRDATA(WCA_ACCENT_POLICY,
+                                ctypes.cast(ctypes.byref(accent), ctypes.c_void_p),
+                                ctypes.sizeof(accent))
+        return bool(fn(wintypes.HWND(hwnd), ctypes.byref(data)))
+    except Exception:
+        return False
+
+
+class Overlay(QWidget):
+    def __init__(self, cfg: Config, files: list[Path], cache: ThumbCache):
+        # Qt.Tool ⇒ WS_EX_TOOLWINDOW, which is what keeps tiling window managers
+        # from ever managing this window (verified under komorebi — R2).
+        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        super().__init__(None, flags)
+        self.cfg, self.files, self.cache = cfg, files, cache
+        self.setWindowTitle("gladius")
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self._acrylic_on = False
+
+        self.strip = StripView(files, cache, cfg, self)
+        self.footer = QLabel(self)
+        self.footer.setStyleSheet(
+            "color: rgba(255,255,255,200); font-family: 'Segoe UI'; font-size: 15px;")
+        self.footer.setAlignment(Qt.AlignCenter)
+
+        self.settings = None          # Stage 7 replaces with SettingsPane(self)
+
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addStretch(2)
+        lay.addWidget(self.strip, stretch=5)   # strip ≈ half the screen height
+        lay.addSpacing(12)
+        lay.addWidget(self.footer)
+        lay.addStretch(2)
+
+        self.strip.index_changed.connect(self._update_footer)
+        self.strip.picked.connect(self._select_and_exit)
+
+        # start on the currently-set wallpaper when it's in the list (SPEC §3)
+        current = get_current_wallpaper()
+        for i, f in enumerate(files):
+            if str(f.resolve()) == current:
+                self.strip.index = i
+                break
+        self._update_footer(self.strip.index)
+
+    # --- lifecycle ---
+    def present(self) -> None:
+        screen = QGuiApplication.screenAt(QCursor.pos()) \
+                 or QGuiApplication.primaryScreen()
+        self.setGeometry(screen.geometry())
+        if getattr(self.cfg, "_windowed", False):        # debug: normal window
+            self.setWindowFlags(Qt.WindowStaysOnTopHint)
+            self.resize(1600, 500)
+            self.show()
+        else:
+            self.showFullScreen()
+        self.raise_()
+        self.activateWindow()
+        if self.cfg.backdrop == "acrylic":
+            self._acrylic_on = enable_acrylic(int(self.winId()))
+        self.strip.set_index(self.strip.index)           # scroll selection into view
+
+    def apply_setting(self, key: str) -> None:           # Stage 7 calls this per change
+        if key == "backdrop":
+            self._acrylic_on = (self.cfg.backdrop == "acrylic"
+                                and enable_acrylic(int(self.winId())))
+        elif key == "number_of_pictures":
+            self.strip.relayout()
+        self.cfg.save()
+        self.update()
+        self.strip.update()
+
+    def _update_footer(self, i: int) -> None:
+        if self.files:
+            self.footer.setText(
+                f"{self.files[i].name}      {i + 1} / {len(self.files)}")
+
+    def _select_and_exit(self, i: int) -> None:
+        select_wallpaper(self.files[i], self.cfg)
+        QApplication.quit()
+
+    # --- painting: the backdrop ---
+    def paintEvent(self, ev) -> None:
+        p = QPainter(self)
+        if self._acrylic_on:
+            p.fillRect(self.rect(), QColor(0, 0, 0, 60))   # light tint over the blur
+        else:
+            p.fillRect(self.rect(),
+                       QColor(0, 0, 0, int(self.cfg.dim_opacity * 255)))
+        p.end()
+
+    # --- keys (SPEC §3 table) ---
+    def keyPressEvent(self, ev: QKeyEvent) -> None:
+        if self.settings is not None and self.settings.isVisible():
+            self.settings.handle_key(ev)                 # Esc/S close it there
+            return
+        k = ev.key()
+        if k in (Qt.Key_J, Qt.Key_Right):
+            self.strip.move(1)
+        elif k in (Qt.Key_K, Qt.Key_Left):
+            self.strip.move(-1)
+        elif k == Qt.Key_D:
+            self.strip.page(1)
+        elif k == Qt.Key_U:
+            self.strip.page(-1)
+        elif k in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            self._select_and_exit(self.strip.index)
+        elif k == Qt.Key_S:
+            if self.settings is not None:
+                self.settings.toggle()
+        elif k == Qt.Key_Escape:
+            QApplication.quit()
+
+
+# --------------------------------------------------------------------------- #
 # CLI entry, single instance, --random
 # --------------------------------------------------------------------------- #
 
@@ -448,9 +597,17 @@ def pick_random(files: list[Path], avoid: str) -> Path | None:
     return random.choice(pool)
 
 
-def run_overlay(cfg: Config) -> int:          # replaced wholesale in Stage 6
-    print("overlay not built yet (stage 6)")
-    return 2
+def run_overlay(cfg: Config) -> int:
+    app = QApplication([])
+    files = scan_wallpapers(cfg)
+    if not files:
+        print(f"no wallpapers found in {cfg.wallpaper_path}", file=sys.stderr)
+        return 1
+    cache = ThumbCache(files, cfg.cache_batch_size)
+    overlay = Overlay(cfg, files, cache)
+    overlay.present()
+    cache.start()          # after show: placeholders paint first, thumbs stream in
+    return app.exec()
 
 
 def main(argv: list[str] | None = None) -> int:

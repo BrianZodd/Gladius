@@ -23,7 +23,7 @@
   live; wallpapers live in **subfolders** (scan must be recursive).
 - **Git**: repo initialized 2026-08-20; single planning commit on `main` (docs scaffold +
   SPEC.md + BLUEPRINT.md). No remote yet.
-- **Blueprint**: BLUEPRINT.md — stage 5/9 done, next: Stage 6. (Stage R spikes done: acrylic
+- **Blueprint**: BLUEPRINT.md — stage 6/9 done, next: Stage 7. (Stage R spikes done: acrylic
   = WCA attempt B, komorebi = `Qt.Tool` alone passes — see RESEARCH-notes.md.)
 
 ## Mission & phases
