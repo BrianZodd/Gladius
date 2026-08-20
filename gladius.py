@@ -488,7 +488,7 @@ class Overlay(QWidget):
             "color: rgba(255,255,255,200); font-family: 'Segoe UI'; font-size: 15px;")
         self.footer.setAlignment(Qt.AlignCenter)
 
-        self.settings = None          # Stage 7 replaces with SettingsPane(self)
+        self.settings = SettingsPane(self)   # created last ⇒ stacks above the strip
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -576,6 +576,96 @@ class Overlay(QWidget):
                 self.settings.toggle()
         elif k == Qt.Key_Escape:
             QApplication.quit()
+
+
+# --------------------------------------------------------------------------- #
+# Settings pane
+# --------------------------------------------------------------------------- #
+
+BORDER_PALETTE = ["#C27B63", "#E06C75", "#98C379", "#E5C07B",
+                  "#61AFEF", "#C678DD", "#56B6C2", "#FFFFFF"]
+
+SETTINGS_ROWS = [
+    ("backdrop",           "Backdrop",       ["dim", "acrylic"]),
+    ("dim_opacity",        "Dim opacity",    [0.5, 0.6, 0.7, 0.8, 0.9]),
+    ("shear",              "Shear tiles",    [True, False]),
+    ("border_color",       "Border color",   BORDER_PALETTE),
+    ("fit_mode",           "Fit mode",       list(FIT_MODES.keys())),
+    ("number_of_pictures", "Visible tiles",  list(range(3, 16))),
+]
+
+
+class SettingsPane(QWidget):
+    def __init__(self, overlay: "Overlay"):
+        super().__init__(overlay)
+        self.overlay = overlay
+        self.row = 0
+        self.setVisible(False)
+
+    def toggle(self) -> None:
+        if not self.isVisible():
+            w, h = 440, 40 + 44 * len(SETTINGS_ROWS)
+            self.setGeometry((self.overlay.width() - w) // 2,
+                             (self.overlay.height() - h) // 2, w, h)
+        self.setVisible(not self.isVisible())
+        self.overlay.update()
+
+    def _cycle(self, key: str, values: list, delta: int) -> None:
+        cur = getattr(self.overlay.cfg, key)
+        try:
+            i = values.index(cur)
+        except ValueError:
+            i = 0 if delta > 0 else len(values) - 1   # custom value → enter at the edge
+            delta = 0
+        setattr(self.overlay.cfg, key, values[(i + delta) % len(values)])
+        self.overlay.apply_setting(key)
+        self.update()
+
+    def handle_key(self, ev: QKeyEvent) -> None:
+        k = ev.key()
+        key, _, values = SETTINGS_ROWS[self.row]
+        if k in (Qt.Key_J, Qt.Key_Down):
+            self.row = (self.row + 1) % len(SETTINGS_ROWS)
+        elif k in (Qt.Key_K, Qt.Key_Up):
+            self.row = (self.row - 1) % len(SETTINGS_ROWS)
+        elif k in (Qt.Key_L, Qt.Key_Right):
+            self._cycle(key, values, +1)
+        elif k in (Qt.Key_H, Qt.Key_Left):
+            self._cycle(key, values, -1)
+        elif k in (Qt.Key_Escape, Qt.Key_S):
+            self.toggle()
+        self.update()
+
+    def paintEvent(self, ev) -> None:
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        p.setBrush(QColor(20, 20, 20, 235))
+        p.setPen(Qt.NoPen)
+        p.drawRoundedRect(self.rect(), 10, 10)
+        p.setFont(self.font())
+        y = 20
+        for r, (key, label, _values) in enumerate(SETTINGS_ROWS):
+            val = getattr(self.overlay.cfg, key)
+            shown = {True: "on", False: "off"}.get(val, str(val))
+            if r == self.row:
+                p.setBrush(QColor(255, 255, 255, 25))
+                p.drawRoundedRect(QRectF(10, y - 4, self.width() - 20, 36), 6, 6)
+            p.setPen(QColor(255, 255, 255, 220))
+            p.drawText(QRectF(24, y, 250, 30), Qt.AlignVCenter, label)
+            if key == "border_color":
+                p.setBrush(QColor(str(val)))
+                p.setPen(QColor(255, 255, 255, 90))
+                p.drawRect(QRectF(self.width() - 120, y + 4, 22, 22))
+                p.setPen(QColor(255, 255, 255, 220))
+                p.drawText(QRectF(self.width() - 90, y, 70, 30),
+                           Qt.AlignVCenter, str(val))
+            else:
+                p.setPen(QColor(255, 255, 255, 220))
+                p.drawText(QRectF(self.width() - 190, y, 166, 30),
+                           Qt.AlignVCenter | Qt.AlignRight, f"‹ {shown} ›")
+            p.setPen(Qt.NoPen)
+            y += 44
+        p.end()
 
 
 # --------------------------------------------------------------------------- #
