@@ -24,12 +24,19 @@ from PySide6.QtGui import (QColor, QCursor, QGuiApplication, QImage, QKeyEvent,
                            QPainter, QPen, QPixmap)
 from PySide6.QtWidgets import QApplication, QLabel, QVBoxLayout, QWidget
 
-CONFIG_DIR = Path(os.environ["APPDATA"]) / "Gladius"
+def _app_dir(var: str, fallback: str) -> Path:
+    """%APPDATA% / %LOCALAPPDATA%, with a fallback for environments that
+    don't set them (services, stripped shells, portable setups)."""
+    root = os.environ.get(var)
+    return Path(root) if root else Path.home() / "AppData" / fallback
+
+
+CONFIG_DIR = _app_dir("APPDATA", "Roaming") / "Gladius"
 CONFIG_PATH = CONFIG_DIR / "config.json"
-DATA_DIR = Path(os.environ["LOCALAPPDATA"]) / "Gladius"
+DATA_DIR = _app_dir("LOCALAPPDATA", "Local") / "Gladius"
 THUMB_DIR = DATA_DIR / "thumbs"
 SET_DIR = DATA_DIR / "set"
-THUMB_HEIGHT = 500
+THUMB_HEIGHT = 500          # floor; thumb_height() scales up for bigger displays
 
 
 # --------------------------------------------------------------------------- #
@@ -40,23 +47,44 @@ def pictures_dir() -> Path:
     """The real Pictures folder, via SHGetKnownFolderPath.
 
     Not %USERPROFILE%\\Pictures: user folders can be redirected elsewhere, and
-    only the known-folder API reports where they actually are.
+    only the known-folder API reports where they actually are. Any failure falls
+    back to the conventional location rather than taking the app down.
     """
     class _GUID(ctypes.Structure):
         _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD),
                     ("Data3", wintypes.WORD), ("Data4", ctypes.c_ubyte * 8)]
 
-    guid = _GUID()
-    ctypes.oledll.ole32.CLSIDFromString(
-        "{33E28130-4E1E-4676-835A-98395C3BC3BB}", ctypes.byref(guid))  # FOLDERID_Pictures
-    out = ctypes.c_wchar_p()
-    if ctypes.windll.shell32.SHGetKnownFolderPath(
-            ctypes.byref(guid), 0, None, ctypes.byref(out)) != 0:
-        return Path.home() / "Pictures"  # S_OK is 0; anything else → sane fallback
     try:
-        return Path(out.value)
-    finally:
-        ctypes.windll.ole32.CoTaskMemFree(out)
+        guid = _GUID()
+        ctypes.oledll.ole32.CLSIDFromString(
+            "{33E28130-4E1E-4676-835A-98395C3BC3BB}", ctypes.byref(guid))  # FOLDERID_Pictures
+        out = ctypes.c_wchar_p()
+        if ctypes.windll.shell32.SHGetKnownFolderPath(
+                ctypes.byref(guid), 0, None, ctypes.byref(out)) != 0:
+            return Path.home() / "Pictures"  # S_OK is 0; anything else → fallback
+        try:
+            return Path(out.value)
+        finally:
+            ctypes.windll.ole32.CoTaskMemFree(out)
+    except Exception:
+        return Path.home() / "Pictures"
+
+
+def _as_bool(value, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    if isinstance(value, (int, float)):
+        return bool(value)
+    return default
+
+
+def _as_number(value, caster, default, low, high):
+    try:
+        return max(low, min(high, caster(value)))
+    except (TypeError, ValueError):
+        return default
 
 
 @dataclass
@@ -84,15 +112,36 @@ class Config:
             for k, v in raw.items():
                 if k in known:
                     setattr(cfg, k, v)
-        if not cfg.wallpaper_path:
-            cfg.wallpaper_path = str(pictures_dir() / "Wallpapers")
-        cfg.number_of_pictures = max(3, min(15, int(cfg.number_of_pictures)))
-        cfg.dim_opacity = max(0.0, min(1.0, float(cfg.dim_opacity)))
-        if cfg.backdrop not in ("dim", "acrylic"):
-            cfg.backdrop = "dim"
+        cfg._sanitize()
         if not CONFIG_PATH.exists():
             cfg.save()                # first run: materialize defaults for the user to edit
         return cfg
+
+    def _sanitize(self) -> None:
+        """Coerce every field to something usable.
+
+        The config is a hand-editable file and Gladius is launched by a hotkey
+        with no console, so a bad value must degrade to the default rather than
+        surface as a silent non-launch.
+        """
+        d = Config()
+        if not isinstance(self.wallpaper_path, str) or not self.wallpaper_path:
+            self.wallpaper_path = str(pictures_dir() / "Wallpapers")
+        self.recursive = _as_bool(self.recursive, d.recursive)
+        self.shear = _as_bool(self.shear, d.shear)
+        self.number_of_pictures = _as_number(
+            self.number_of_pictures, int, d.number_of_pictures, 3, 15)
+        self.dim_opacity = _as_number(self.dim_opacity, float, d.dim_opacity, 0.0, 1.0)
+        self.cache_batch_size = _as_number(
+            self.cache_batch_size, int, d.cache_batch_size, 1, 64)
+        if self.backdrop not in ("dim", "acrylic"):
+            self.backdrop = d.backdrop
+        if self.fit_mode not in FIT_MODES:
+            self.fit_mode = d.fit_mode
+        if not QColor.isValidColorName(str(self.border_color)):
+            self.border_color = d.border_color
+        if not isinstance(self.on_select_command, str) or not self.on_select_command:
+            self.on_select_command = None
 
     def save(self) -> None:
         CONFIG_DIR.mkdir(parents=True, exist_ok=True)
@@ -117,14 +166,33 @@ def scan_wallpapers(cfg: Config) -> list[Path]:
     return sorted(files, key=lambda p: str(p).lower())
 
 
-def thumb_key(p: Path) -> str:
-    """sha1(abs_path | mtime_ns | size).
+def thumb_height() -> int:
+    """Thumbnail height in device pixels, sized for the largest attached screen.
+
+    A fixed height would upscale (and look soft) on a 4K or high-DPI display, so
+    it tracks the display and is folded into the cache key below.
+    """
+    try:
+        tallest = max(int(s.geometry().height() * s.devicePixelRatio())
+                      for s in QGuiApplication.screens())
+    except (ValueError, RuntimeError, AttributeError):
+        return THUMB_HEIGHT            # no Qt app yet — the floor is fine
+    return max(THUMB_HEIGHT, min(1600, int(tallest * 0.6)))
+
+
+def thumb_key(p: Path, height: int = THUMB_HEIGHT) -> str:
+    """sha1(abs_path | mtime_ns | size | height).
 
     Any rename, move, or edit yields a new key — which is what kills the
     reference implementation's stale-thumbnail and basename-collision bugs.
+    Height is included so a different display resolution gets its own entries
+    instead of reusing thumbnails that are too small for it.
     """
-    st = p.stat()
-    raw = f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}"
+    try:
+        st = p.stat()
+        raw = f"{p.resolve()}|{st.st_mtime_ns}|{st.st_size}|{height}"
+    except OSError:                    # vanished between scan and cache build
+        raw = f"{p}|missing|{height}"
     return hashlib.sha1(raw.encode("utf-8", "surrogatepass")).hexdigest() + ".jpg"
 
 
@@ -133,16 +201,18 @@ class _ThumbSignals(QObject):
 
 
 class _ThumbWorker(QRunnable):
-    def __init__(self, index: int, src: Path, dst: Path, signals: _ThumbSignals):
+    def __init__(self, index: int, src: Path, dst: Path, signals: _ThumbSignals,
+                 height: int = THUMB_HEIGHT):
         super().__init__()
         self.index, self.src, self.dst, self.signals = index, src, dst, signals
+        self.height = height
 
     def run(self) -> None:
         try:
             img = QImage(str(self.src))
             if img.isNull():
                 return
-            scaled = img.scaledToHeight(THUMB_HEIGHT, Qt.SmoothTransformation)
+            scaled = img.scaledToHeight(self.height, Qt.SmoothTransformation)
             scaled.save(str(self.dst), "JPG", 85)
             self.signals.done.emit(self.index)
         except Exception:
@@ -161,7 +231,8 @@ class ThumbCache(QObject):
     def __init__(self, files: list[Path], batch: int):
         super().__init__()
         self.files = files
-        self.keys = [thumb_key(p) for p in files]
+        self.height = thumb_height()
+        self.keys = [thumb_key(p, self.height) for p in files]
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(max(1, batch))
         self._signals = _ThumbSignals()
@@ -171,18 +242,21 @@ class ThumbCache(QObject):
         return THUMB_DIR / self.keys[i]
 
     def start(self) -> None:
-        THUMB_DIR.mkdir(parents=True, exist_ok=True)
-        expected = set(self.keys)
-        for stale in THUMB_DIR.iterdir():        # prune orphans (renamed/edited/deleted)
-            if stale.name not in expected:
-                try:
-                    stale.unlink()
-                except OSError:
-                    pass
+        try:
+            THUMB_DIR.mkdir(parents=True, exist_ok=True)
+            expected = set(self.keys)
+            for stale in THUMB_DIR.iterdir():    # prune orphans (renamed/edited/deleted)
+                if stale.name not in expected:
+                    try:
+                        stale.unlink()
+                    except OSError:
+                        pass
+        except OSError:
+            return                               # unwritable cache dir → placeholders only
         for i, src in enumerate(self.files):
             dst = self.thumb_path(i)
             if not dst.exists():
-                self.pool.start(_ThumbWorker(i, src, dst, self._signals))
+                self.pool.start(_ThumbWorker(i, src, dst, self._signals, self.height))
 
 
 # --------------------------------------------------------------------------- #
@@ -203,13 +277,21 @@ SPI_GETDESKWALLPAPER = 0x0073
 SPIF_UPDATEINIFILE_SENDCHANGE = 0x3
 
 
-def _apply_fit_mode(fit_mode: str) -> None:
-    """The only registry write Gladius makes: the two fit-mode values."""
+def _apply_fit_mode(fit_mode: str) -> bool:
+    """The only registry write Gladius makes: the two fit-mode values.
+
+    A locked-down or policy-restricted registry costs the fit mode, not the
+    wallpaper — the caller sets the image either way.
+    """
     style, tile = FIT_MODES.get(fit_mode, FIT_MODES["fill"])
-    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop",
-                        0, winreg.KEY_SET_VALUE) as key:
-        winreg.SetValueEx(key, "WallpaperStyle", 0, winreg.REG_SZ, style)
-        winreg.SetValueEx(key, "TileWallpaper", 0, winreg.REG_SZ, tile)
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop",
+                            0, winreg.KEY_SET_VALUE) as key:
+            winreg.SetValueEx(key, "WallpaperStyle", 0, winreg.REG_SZ, style)
+            winreg.SetValueEx(key, "TileWallpaper", 0, winreg.REG_SZ, tile)
+        return True
+    except OSError:
+        return False
 
 
 def _spi_set(path: Path) -> bool:
@@ -218,12 +300,15 @@ def _spi_set(path: Path) -> bool:
 
 
 def _transcode_to_png(path: Path) -> Path | None:
-    img = QImage(str(path))
-    if img.isNull():
+    try:
+        img = QImage(str(path))
+        if img.isNull():
+            return None
+        SET_DIR.mkdir(parents=True, exist_ok=True)
+        out = SET_DIR / "current.png"
+        return out if img.save(str(out), "PNG") else None
+    except OSError:
         return None
-    SET_DIR.mkdir(parents=True, exist_ok=True)
-    out = SET_DIR / "current.png"
-    return out if img.save(str(out), "PNG") else None
 
 
 def set_wallpaper(path: Path, fit_mode: str) -> bool:
@@ -290,7 +375,9 @@ class StripView(QWidget):
 
     # --- geometry ---
     def tile_w(self) -> float:
-        return self.width() / self.cfg.number_of_pictures - 10
+        # never zero or negative: the widget can be painted mid-layout, and a
+        # narrow window with many tiles would otherwise divide by zero below
+        return max(1.0, self.width() / max(1, self.cfg.number_of_pictures) - 10)
 
     def step(self) -> float:
         return self.tile_w() + SPACING
@@ -361,7 +448,7 @@ class StripView(QWidget):
     def paintEvent(self, ev) -> None:
         p = QPainter(self)
         p.setRenderHint(QPainter.SmoothPixmapTransform)
-        tw, th = self.tile_w(), float(self.height())
+        tw, th = self.tile_w(), float(max(1, self.height()))
         step = self.step()
         first = max(0, int(self.content_x // step) - 1)
         last = min(len(self.files) - 1,
@@ -374,7 +461,7 @@ class StripView(QWidget):
                 p.shear(SHEAR_X, 0)
             p.setClipRect(QRectF(0, 0, tw, th))
             pm = self._pixmap(i)
-            if pm and not pm.isNull():
+            if pm and not pm.isNull() and pm.width() > 0 and pm.height() > 0:
                 # PreserveAspectCrop: source rect matches tile aspect, centered
                 tile_ar = tw / th
                 src_ar = pm.width() / pm.height()
@@ -672,12 +759,33 @@ class SettingsPane(QWidget):
 # CLI entry, single instance, --random
 # --------------------------------------------------------------------------- #
 
+def report(message: str, dialog: bool) -> None:
+    """Surface a startup failure.
+
+    Launched from a hotkey via pythonw there is no console, so stderr alone
+    would make a failure look like the hotkey doing nothing. `dialog` is False
+    for --random, which may run unattended from a scheduled task where a modal
+    box would block forever.
+    """
+    print(message, file=sys.stderr)
+    if not dialog:
+        return
+    try:
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.warning(None, "Gladius", message)
+    except Exception:
+        pass
+
+
 def acquire_single_instance() -> bool:
     """False when an overlay is already open. The handle is intentionally leaked:
     the OS releases the mutex when this process exits."""
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel32.CreateMutexW(None, False, "GladiusWallpaperPicker")
-    return ctypes.get_last_error() != 183     # ERROR_ALREADY_EXISTS
+    try:
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.CreateMutexW(None, False, "GladiusWallpaperPicker")
+        return ctypes.get_last_error() != 183     # ERROR_ALREADY_EXISTS
+    except Exception:
+        return True                               # can't tell → let it run
 
 
 def pick_random(files: list[Path], avoid: str) -> Path | None:
@@ -691,13 +799,18 @@ def run_overlay(cfg: Config) -> int:
     app = QApplication([])
     files = scan_wallpapers(cfg)
     if not files:
-        print(f"no wallpapers found in {cfg.wallpaper_path}", file=sys.stderr)
+        report(_no_wallpapers_message(cfg), dialog=True)
         return 1
     cache = ThumbCache(files, cfg.cache_batch_size)
     overlay = Overlay(cfg, files, cache)
     overlay.present()
     cache.start()          # after show: placeholders paint first, thumbs stream in
     return app.exec()
+
+
+def _no_wallpapers_message(cfg: Config) -> str:
+    return (f"No images found in:\n{cfg.wallpaper_path}\n\n"
+            f"Point 'wallpaper_path' at your wallpaper folder in:\n{CONFIG_PATH}")
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -717,11 +830,10 @@ def main(argv: list[str] | None = None) -> int:
     cfg = Config.load()
 
     if args.random:
-        from PySide6.QtGui import QGuiApplication   # transcode path needs a Qt app
-        _app = QGuiApplication([])
+        _app = QGuiApplication([])                 # transcode path needs a Qt app
         choice = pick_random(scan_wallpapers(cfg), get_current_wallpaper())
         if choice is None:
-            print(f"no wallpapers found in {cfg.wallpaper_path}", file=sys.stderr)
+            report(_no_wallpapers_message(cfg), dialog=False)   # may be unattended
             return 1
         return 0 if select_wallpaper(choice, cfg) else 1
 

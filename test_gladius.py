@@ -50,6 +50,52 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(cfg.backdrop, "dim")
 
 
+class ConfigRobustnessTests(ConfigTests):
+    """A hand-edited config must never crash a hotkey-launched app."""
+
+    def test_wrong_types_fall_back_to_defaults(self):
+        self.cfg_path.write_text(json.dumps({
+            "number_of_pictures": "seven",     # not a number
+            "dim_opacity": "very",             # not a number
+            "cache_batch_size": None,          # not a number
+            "fit_mode": "diagonal",            # not a known mode
+            "border_color": "not-a-color",     # not a color
+            "on_select_command": 42,           # not a string
+        }))
+        cfg = gladius.Config.load()
+        self.assertEqual(cfg.number_of_pictures, 7)
+        self.assertEqual(cfg.dim_opacity, 0.7)
+        self.assertEqual(cfg.cache_batch_size, 8)
+        self.assertEqual(cfg.fit_mode, "fill")
+        self.assertEqual(cfg.border_color, "#C27B63")
+        self.assertIsNone(cfg.on_select_command)
+
+    def test_numeric_strings_are_accepted(self):
+        self.cfg_path.write_text(json.dumps({"number_of_pictures": "9",
+                                             "dim_opacity": "0.4"}))
+        cfg = gladius.Config.load()
+        self.assertEqual(cfg.number_of_pictures, 9)
+        self.assertAlmostEqual(cfg.dim_opacity, 0.4)
+
+    def test_bool_like_values(self):
+        self.cfg_path.write_text(json.dumps({"shear": "off", "recursive": "yes"}))
+        cfg = gladius.Config.load()
+        self.assertIs(cfg.shear, False)
+        self.assertIs(cfg.recursive, True)
+
+    def test_named_and_short_hex_colors_are_kept(self):
+        """Anything Qt can parse survives — not just the #RRGGBB the pane cycles."""
+        for value in ("steelblue", "#fff"):
+            self.cfg_path.write_text(json.dumps({"border_color": value}))
+            self.assertEqual(gladius.Config.load().border_color, value)
+
+    def test_cache_batch_size_clamped(self):
+        self.cfg_path.write_text(json.dumps({"cache_batch_size": 9999}))
+        self.assertLessEqual(gladius.Config.load().cache_batch_size, 64)
+        self.cfg_path.write_text(json.dumps({"cache_batch_size": 0}))
+        self.assertGreaterEqual(gladius.Config.load().cache_batch_size, 1)
+
+
 class ScanTests(unittest.TestCase):
     def test_recursive_scan_filters_and_sorts(self):
         with tempfile.TemporaryDirectory() as d:
@@ -79,6 +125,29 @@ class ThumbKeyTests(unittest.TestCase):
             k2 = gladius.thumb_key(f)
             self.assertNotEqual(k1, k2)
             self.assertTrue(k1.endswith(".jpg"))
+
+    def test_key_varies_with_thumb_height(self):
+        """A bigger display gets its own cache entries instead of upscaling."""
+        with tempfile.TemporaryDirectory() as d:
+            f = Path(d) / "w.jpg"
+            f.write_bytes(b"one")
+            self.assertNotEqual(gladius.thumb_key(f, 500), gladius.thumb_key(f, 1000))
+
+    def test_missing_file_does_not_raise(self):
+        """A file deleted between scan and cache build must not kill startup."""
+        key = gladius.thumb_key(Path(r"C:\gone\missing.jpg"))
+        self.assertTrue(key.endswith(".jpg"))
+
+
+class EnvFallbackTests(unittest.TestCase):
+    def test_app_dir_falls_back_when_env_missing(self):
+        self.assertEqual(gladius._app_dir("GLADIUS_NO_SUCH_VAR", "Roaming"),
+                         Path.home() / "AppData" / "Roaming")
+
+    def test_app_dir_uses_env_when_present(self):
+        with mock.patch.dict("os.environ", {"GLADIUS_TEST_VAR": r"D:\somewhere"}):
+            self.assertEqual(gladius._app_dir("GLADIUS_TEST_VAR", "Roaming"),
+                             Path(r"D:\somewhere"))
 
 
 class SetterLogicTests(unittest.TestCase):

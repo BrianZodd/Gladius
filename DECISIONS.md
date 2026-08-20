@@ -6,6 +6,7 @@ The append-only ledger of *what changed and why* — project substance (product 
 
 ## Index
 - 2026-08-20 — Founding design calls (forge session)
+- 2026-08-20 — v1 build session (spike verdicts, production hardening, live acceptance)
 
 ---
 
@@ -36,3 +37,48 @@ Decisions from the nova-forge pass that shaped `SPEC.md`, with the trade-offs:
   decides, outcome to be logged here.
 - **No DESIGN.md** — the design identity is "faithful reproduction of the original strip,"
   fully specified in SPEC §3; a seventh doc would be scaffolding for its own sake.
+
+## 2026-08-20 — v1 build session (spike verdicts, production hardening, live acceptance)
+
+### Runtime spike verdicts (Stage R — full method and measurements in RESEARCH-notes.md)
+
+- **Acrylic = `SetWindowCompositionAttribute` (`ACCENT_ENABLE_ACRYLICBLURBEHIND`).** The
+  documented Win11 `DWMWA_SYSTEMBACKDROP_TYPE` returns `S_OK` but paints a flat opaque grey
+  panel on a frameless layered window — worse than the dim fallback — so the undocumented
+  API wins on merit. Judged by measuring high-frequency image energy, not by return codes,
+  precisely because the losing call *reports success*. Qt's `WA_TranslucentBackground`
+  stays on. Tint lightened from the planned `0x99000000` to `0x30000000`, which was
+  otherwise dark enough to hide the very blur it enables.
+- **komorebi = `Qt.Tool` alone.** It yields `WS_EX_TOOLWINDOW`, which komorebi's window
+  filter skips: geometry untouched, no retiling of other windows, focus taken and returned.
+  The planned `applications.json` float-rule fallback is therefore *not* shipped — Gladius
+  stays self-contained and edits no other tool's config.
+
+### Production-compatibility hardening (added on request, mid-build)
+
+Gladius is meant to be downloaded by strangers on hardware and Windows setups nothing like
+the machine it was written on (heavily customised shells, Windhawk/StartAllBack, any DPI,
+any locale). The build therefore added a hardening pass beyond the blueprint's feature
+scope. Each item is a failure that would have been invisible here and fatal elsewhere:
+
+- **Thumbnail height tracks the display** (60% of the tallest screen's device pixels,
+  floor 500, ceiling 1600) and is **folded into the cache key**. A fixed 500px thumbnail
+  upscales visibly on a 4K or high-DPI panel; keying by height means a different display
+  gets its own entries rather than silently reusing thumbnails that are too small.
+- **The config is treated as hostile input.** It is a hand-editable file driving an app
+  launched by a hotkey with no console, so a bad value must degrade to a default rather
+  than look like a broken hotkey. Every field is coerced (`"9"` → 9, `"off"` → False),
+  ranges clamped, `fit_mode`/`backdrop` validated against their vocabularies, and
+  `border_color` validated with Qt — which accepts any colour Qt can parse, so a custom
+  value the settings pane never produces survives untouched.
+- **Failures are visible.** Under `pythonw` there is no stderr anyone reads, so "no images
+  found" now shows a dialog naming the folder *and* the config path to fix it. `--random`
+  deliberately does **not** dialog: it may run unattended from a logon scheduled task,
+  where a modal box would block forever.
+- **`%APPDATA%`/`%LOCALAPPDATA%` are not assumed to exist** (fallback under `~/AppData`),
+  known-folder resolution falls back instead of raising, and an unwritable cache directory
+  degrades to placeholder tiles.
+- **A restricted registry costs the fit mode, not the wallpaper**: `_apply_fit_mode`
+  reports failure and the image is still set.
+- **Paint-path geometry is guarded** so absurd window sizes cannot divide by zero — checked
+  from 1×1 up to 3840×2160, plus ultrawide and netbook layouts.

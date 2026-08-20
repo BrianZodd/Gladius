@@ -44,6 +44,24 @@ Ship a polished, faithful Windows port of hyprquickpaper, then keep it healthy.
   Esc-restore) · per-monitor wallpapers via `IDesktopWallpaper` COM · grid layout mode ·
   fade transition on set.
 
+- **Live-wallpaper engine compatibility** *(post-v1, wanted — raised 2026-08-20)*. Let
+  Gladius browse and set wallpapers belonging to the animated-wallpaper apps people already
+  run, instead of only static image files:
+  - **Lively Wallpaper** (open source) — has a CLI (`Lively.exe`/`livelycu`) for setting a
+    wallpaper and a per-wallpaper library folder with metadata; the most tractable first
+    target.
+  - **Wallpaper Engine** (Steam, paid, by far the largest install base) — controllable via
+    its command-line interface (`wallpaper32.exe -control openWallpaper -file …`), with a
+    Steam Workshop content folder to enumerate.
+  - **Sucrose Wallpaper Engine** (open source) — same shape: local library + control surface.
+  - Shape of the work: detect which engines are installed, enumerate each library, show
+    their entries in the same strip (preview image per entry), and delegate the *set* to
+    that engine rather than to `SystemParametersInfoW`. Note the existing
+    `on_select_command` config key already covers the crude version of this for a single
+    engine — the feature is really auto-detection plus mixed-source browsing.
+  - Design question to settle first: one merged strip of everything, or a source filter/
+    toggle? Affects the footer, the counter, and the config schema.
+
 ## Pre-release gate
 
 Before flipping the repo public:
