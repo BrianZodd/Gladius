@@ -82,3 +82,20 @@ scope. Each item is a failure that would have been invisible here and fatal else
   reports failure and the image is still set.
 - **Paint-path geometry is guarded** so absurd window sizes cannot divide by zero — checked
   from 1×1 up to 3840×2160, plus ultrawide and netbook layouts.
+
+### The wallpaper path handed to Windows is always resolved (found during acceptance)
+
+`SystemParametersInfoW` does not read the image — Explorer does, from outside the calling
+process. So the path must be real *outside* whatever sandbox Gladius happens to run in.
+Under MSIX filesystem redirection (**Microsoft Store Python**, or any packaged host), a file
+written to `%LOCALAPPDATA%` physically lands in a package-private store; the literal path
+then resolves to nothing for Explorer. The call still returns success and the desktop
+silently keeps the old wallpaper — a failure with no error anywhere.
+
+This was caught because the build ran inside exactly such a container. Proof: identical PNG
+bytes at two locations — the one under `%LOCALAPPDATA%` was ignored by Windows, the one
+under a plain path was consumed; passing the *resolved* path made the redirected one work
+too. `_spi_set` therefore resolves every path it hands to Windows. This only ever affects
+the transcode output (webp/avif/gif and retry cases); direct-format sets were already
+resolved. Cost: one `Path.resolve()`. Benefit: animated/exotic formats work for Store-Python
+users instead of failing silently.

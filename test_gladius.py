@@ -165,6 +165,21 @@ class SetterLogicTests(unittest.TestCase):
         self.assertNotIn(".webp", gladius.DIRECT_EXTS)
         self.assertIn(".jfif", gladius.DIRECT_EXTS)
 
+    def test_spi_set_resolves_the_path(self):
+        """Explorer reads the file from outside this process, so the path handed
+        to Windows must be the real one even under MSIX redirection."""
+        sent = []
+        fake = mock.Mock(return_value=1)
+        with tempfile.TemporaryDirectory() as d:
+            target = Path(d) / "current.png"
+            target.write_bytes(b"x")
+            with mock.patch.object(gladius.ctypes, "windll") as windll:
+                windll.user32.SystemParametersInfoW = \
+                    lambda *a: sent.append(a[2]) or 1
+                gladius._spi_set(target)
+        self.assertEqual(sent, [str(target.resolve())])
+        del fake
+
     def test_set_wallpaper_transcodes_non_direct(self):
         calls = []
         with mock.patch.object(gladius, "_apply_fit_mode"), \

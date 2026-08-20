@@ -295,8 +295,22 @@ def _apply_fit_mode(fit_mode: str) -> bool:
 
 
 def _spi_set(path: Path) -> bool:
+    """Hand the wallpaper path to Windows — always fully resolved.
+
+    Explorer reads the file itself, from outside this process. If Python is
+    running under MSIX filesystem redirection (Microsoft Store Python, or any
+    packaged host), a path under %LOCALAPPDATA% is redirected to a
+    package-private store that Explorer cannot see: the call reports success and
+    the desktop silently keeps the old wallpaper. Resolving yields the real
+    backing path, which works either way. Verified both ways on a redirected
+    host — identical bytes, ignored unresolved, applied resolved.
+    """
+    try:
+        target = path.resolve()
+    except OSError:
+        target = path
     return bool(ctypes.windll.user32.SystemParametersInfoW(
-        SPI_SETDESKWALLPAPER, 0, str(path), SPIF_UPDATEINIFILE_SENDCHANGE))
+        SPI_SETDESKWALLPAPER, 0, str(target), SPIF_UPDATEINIFILE_SENDCHANGE))
 
 
 def _transcode_to_png(path: Path) -> Path | None:
