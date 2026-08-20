@@ -99,3 +99,31 @@ too. `_spi_set` therefore resolves every path it hands to Windows. This only eve
 the transcode output (webp/avif/gif and retry cases); direct-format sets were already
 resolved. Cost: one `Path.resolve()`. Benefit: animated/exotic formats work for Store-Python
 users instead of failing silently.
+
+### Live acceptance outcome (2026-08-20)
+
+SPEC §9 ran as a mix of machine-driven checks and one live human check. What each box rests
+on, stated honestly:
+
+| Criterion | Result | Verified by |
+|---|---|---|
+| 1. Hotkey summons the overlay; komorebi does not fight it | PASS | **Live**, under running komorebi with the real `alt + w` binding |
+| 1. Warm launch ≲1.5 s | PASS (0.30 s) | Timed from process start to window visible |
+| 2. Cold run streams thumbnails behind placeholders; warm run instant | PASS | Cold run generated all 72 thumbnails with placeholders painting first |
+| 3. Every key + wheel/drag/click per SPEC §3 | PASS | Synthetic Qt events against the real `Overlay` (22 assertions) |
+| 4. `.jpg` / `.png` / `.jfif` direct, `.webp` via transcode, fit mode respected | PASS | Registry values asserted per mode; Windows' own `TranscodedImageCache` confirms it consumed each source |
+| 5. `--random` sets a wallpaper with no window | PASS | Exit 0, wallpaper changed, picked from a subfolder |
+| 6. Settings rows apply live and survive restart | PASS | All six rows cycled, applied, and re-read from `config.json` (22 assertions) |
+| 7. Double launch → one overlay | PASS | Second process exits 0; exactly one window remains |
+| 8. Esc leaves the desktop untouched | PASS | Real process closed by a posted `WM_KEYDOWN`; wallpaper byte-identical after |
+
+**On the split:** the keyboard/mouse and settings criteria were driven by posting events to
+the real widgets rather than by a person pressing keys. That is stronger than a manual pass
+for coverage and repeatability (every key, every row, every clamp — re-runnable), and weaker
+in exactly one respect: it does not prove the *host* delivers those keystrokes to the
+window. That gap is closed by the live check — the overlay took and returned focus under
+komorebi, and `Esc` delivered as a real window message ended the process. Brian's
+by-feel pass over navigation and picking is still worth doing and is not blocking.
+
+**komorebi verdict, confirmed with the real app**: `Qt.Tool` alone is sufficient. No
+`applications.json` rule, no manual ex-style set. Gladius edits no other tool's config.
