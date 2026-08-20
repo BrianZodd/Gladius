@@ -81,5 +81,33 @@ class ThumbKeyTests(unittest.TestCase):
             self.assertTrue(k1.endswith(".jpg"))
 
 
+class SetterLogicTests(unittest.TestCase):
+    def test_fit_mode_pairs(self):
+        self.assertEqual(gladius.FIT_MODES["fill"], ("10", "0"))
+        self.assertEqual(gladius.FIT_MODES["tile"], ("0", "1"))
+        self.assertEqual(len(gladius.FIT_MODES), 6)
+
+    def test_build_select_command(self):
+        cmd = gladius.build_select_command(
+            'wal -i "{path}"', Path(r"C:\pics\a b.jpg"))
+        self.assertEqual(cmd, f'wal -i "{Path(r"C:/pics/a b.jpg").resolve()}"')
+
+    def test_direct_exts_exclude_webp(self):
+        self.assertNotIn(".webp", gladius.DIRECT_EXTS)
+        self.assertIn(".jfif", gladius.DIRECT_EXTS)
+
+    def test_set_wallpaper_transcodes_non_direct(self):
+        calls = []
+        with mock.patch.object(gladius, "_apply_fit_mode"), \
+             mock.patch.object(gladius, "_spi_set",
+                               side_effect=lambda p: calls.append(p) or True), \
+             mock.patch.object(gladius, "_transcode_to_png",
+                               return_value=Path("C:/fake/current.png")) as tr:
+            ok = gladius.set_wallpaper(Path("C:/pics/x.webp"), "fill")
+        self.assertTrue(ok)
+        tr.assert_called_once()
+        self.assertEqual(calls, [Path("C:/fake/current.png")])
+
+
 if __name__ == "__main__":
     unittest.main()

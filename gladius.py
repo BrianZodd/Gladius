@@ -180,3 +180,77 @@ class ThumbCache(QObject):
             dst = self.thumb_path(i)
             if not dst.exists():
                 self.pool.start(_ThumbWorker(i, src, dst, self._signals))
+
+
+# --------------------------------------------------------------------------- #
+# Setting the wallpaper (Win32)
+# --------------------------------------------------------------------------- #
+
+FIT_MODES = {
+    "fill":    ("10", "0"),
+    "fit":     ("6",  "0"),
+    "span":    ("22", "0"),
+    "stretch": ("2",  "0"),
+    "center":  ("0",  "0"),
+    "tile":    ("0",  "1"),
+}
+DIRECT_EXTS = frozenset({".jpg", ".jpeg", ".jfif", ".png", ".bmp"})
+SPI_SETDESKWALLPAPER = 0x0014
+SPI_GETDESKWALLPAPER = 0x0073
+SPIF_UPDATEINIFILE_SENDCHANGE = 0x3
+
+
+def _apply_fit_mode(fit_mode: str) -> None:
+    """The only registry write Gladius makes: the two fit-mode values."""
+    style, tile = FIT_MODES.get(fit_mode, FIT_MODES["fill"])
+    with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Control Panel\Desktop",
+                        0, winreg.KEY_SET_VALUE) as key:
+        winreg.SetValueEx(key, "WallpaperStyle", 0, winreg.REG_SZ, style)
+        winreg.SetValueEx(key, "TileWallpaper", 0, winreg.REG_SZ, tile)
+
+
+def _spi_set(path: Path) -> bool:
+    return bool(ctypes.windll.user32.SystemParametersInfoW(
+        SPI_SETDESKWALLPAPER, 0, str(path), SPIF_UPDATEINIFILE_SENDCHANGE))
+
+
+def _transcode_to_png(path: Path) -> Path | None:
+    img = QImage(str(path))
+    if img.isNull():
+        return None
+    SET_DIR.mkdir(parents=True, exist_ok=True)
+    out = SET_DIR / "current.png"
+    return out if img.save(str(out), "PNG") else None
+
+
+def set_wallpaper(path: Path, fit_mode: str) -> bool:
+    """Set the desktop wallpaper, transcoding formats Windows can't read itself.
+
+    QImage reads webp/avif/gif fine, but SystemParametersInfoW does not — those
+    (and any direct attempt that fails) go through a PNG in the scratch dir.
+    """
+    _apply_fit_mode(fit_mode)
+    p = path.resolve()
+    if p.suffix.lower() in DIRECT_EXTS and _spi_set(p):
+        return True
+    out = _transcode_to_png(p)
+    return _spi_set(out) if out else False
+
+
+def get_current_wallpaper() -> str:
+    buf = ctypes.create_unicode_buffer(260)
+    ctypes.windll.user32.SystemParametersInfoW(SPI_GETDESKWALLPAPER, 260, buf, 0)
+    return buf.value
+
+
+def build_select_command(template: str, path: Path) -> str:
+    return template.replace("{path}", str(path.resolve()))
+
+
+def select_wallpaper(path: Path, cfg: Config) -> bool:
+    if cfg.on_select_command:
+        subprocess.Popen(build_select_command(cfg.on_select_command, path), shell=True,
+                         creationflags=subprocess.CREATE_NO_WINDOW
+                                     | subprocess.DETACHED_PROCESS)
+        return True                      # parity with commands.sh: fire-and-forget
+    return set_wallpaper(path, cfg.fit_mode)
