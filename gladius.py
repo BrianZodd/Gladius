@@ -13,6 +13,8 @@ import os
 import random
 import subprocess
 import sys
+import time
+import urllib.request
 import winreg
 from ctypes import wintypes
 from dataclasses import dataclass, asdict, fields
@@ -30,6 +32,10 @@ def _app_dir(var: str, fallback: str) -> Path:
     root = os.environ.get(var)
     return Path(root) if root else Path.home() / "AppData" / fallback
 
+
+__version__ = "1.0.0"       # single source of truth: build, --version, update check
+REPO_SLUG = "BrianZodd/Gladius"
+WINGET_ID = "BrianZodd.Gladius"
 
 CONFIG_DIR = _app_dir("APPDATA", "Roaming") / "Gladius"
 CONFIG_PATH = CONFIG_DIR / "config.json"
@@ -599,6 +605,11 @@ class Overlay(QWidget):
         lay.addWidget(self.footer)
         lay.addStretch(2)
 
+        # cache-only read (no network on the launch path); "" on the common path
+        newer = pending_update()
+        self._update_note = (f"       ·  v{newer} available — {upgrade_command()}"
+                             if newer else "")
+
         self.strip.index_changed.connect(self._update_footer)
         self.strip.picked.connect(self._select_and_exit)
 
@@ -640,7 +651,8 @@ class Overlay(QWidget):
     def _update_footer(self, i: int) -> None:
         if self.files:
             self.footer.setText(
-                f"{self.files[i].name}      {i + 1} / {len(self.files)}")
+                f"{self.files[i].name}      {i + 1} / {len(self.files)}"
+                f"{self._update_note}")
 
     def _select_and_exit(self, i: int) -> None:
         select_wallpaper(self.files[i], self.cfg)
@@ -770,6 +782,110 @@ class SettingsPane(QWidget):
 
 
 # --------------------------------------------------------------------------- #
+# Update check
+# --------------------------------------------------------------------------- #
+#
+# The launch path never touches the network. Reading the cache is a single small
+# file read; the network refresh happens in the background *after* the window is
+# up, so it can only ever affect the *next* launch. That keeps the 0.30 s budget
+# untouched while still telling people a new version exists.
+
+RELEASES_API = f"https://api.github.com/repos/{REPO_SLUG}/releases/latest"
+RELEASES_PAGE = f"https://github.com/{REPO_SLUG}/releases/latest"
+UPDATE_CACHE = DATA_DIR / "update.json"
+UPDATE_INTERVAL = 24 * 60 * 60          # seconds between network checks
+
+
+def parse_version(text) -> tuple[int, ...]:
+    """'v1.2.3' -> (1, 2, 3). Anything unparseable -> () so it loses every
+    comparison — a tag we cannot read must never look like an upgrade."""
+    if not isinstance(text, str):
+        return ()
+    parts = text.strip().lstrip("vV").split(".")
+    if not parts or not all(p.isdigit() for p in parts):
+        return ()
+    return tuple(int(p) for p in parts)
+
+
+def is_newer(candidate: str, current: str = __version__) -> bool:
+    a, b = parse_version(candidate), parse_version(current)
+    return bool(a) and bool(b) and a > b
+
+
+def read_update_cache() -> dict:
+    try:
+        data = json.loads(UPDATE_CACHE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def write_update_cache(data: dict) -> None:
+    try:
+        UPDATE_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        UPDATE_CACHE.write_text(json.dumps(data), encoding="utf-8")
+    except OSError:
+        pass                       # a lost cache costs one extra check, nothing more
+
+
+def should_check(cache: dict, now: float) -> bool:
+    last = cache.get("checked_at")
+    if not isinstance(last, (int, float)):
+        return True
+    return not (0 <= now - last < UPDATE_INTERVAL)   # future stamp ⇒ check anyway
+
+
+def pending_update(current: str = __version__) -> str | None:
+    """The cached newer version, or None. Pure cache read — never the network."""
+    latest = read_update_cache().get("latest")
+    return latest if isinstance(latest, str) and is_newer(latest, current) else None
+
+
+def fetch_latest_version(timeout: float = 4.0) -> str | None:
+    """Ask GitHub for the newest release tag. Returns None on any failure —
+    no network, rate-limited, no releases yet, changed payload."""
+    try:
+        req = urllib.request.Request(
+            RELEASES_API,
+            headers={"Accept": "application/vnd.github+json",
+                     "User-Agent": f"Gladius/{__version__}"})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            tag = json.loads(resp.read().decode("utf-8")).get("tag_name")
+        return tag if isinstance(tag, str) else None
+    except Exception:
+        return None
+
+
+def refresh_update_cache() -> None:
+    """Background half: hit the network at most once per UPDATE_INTERVAL and
+    record the result. Any failure just leaves the old cache in place."""
+    cache = read_update_cache()
+    if not should_check(cache, time.time()):
+        return
+    tag = fetch_latest_version()
+    if tag is None:
+        return
+    write_update_cache({"latest": tag, "checked_at": time.time()})
+
+
+def upgrade_command(exe_path: str | None = None) -> str:
+    """The upgrade instruction that matches how this copy was installed."""
+    p = (exe_path if exe_path is not None else sys.executable or "").lower()
+    if f"{os.sep}scoop{os.sep}".lower() in p or "/scoop/" in p:
+        return "scoop update gladius"
+    if "winget" in p:
+        return f"winget upgrade {WINGET_ID}"
+    return RELEASES_PAGE
+
+
+class _UpdateProbe(QRunnable):
+    """Runs refresh_update_cache off the GUI thread, after the window is up."""
+
+    def run(self) -> None:
+        refresh_update_cache()
+
+
+# --------------------------------------------------------------------------- #
 # CLI entry, single instance, --random
 # --------------------------------------------------------------------------- #
 
@@ -819,6 +935,7 @@ def run_overlay(cfg: Config) -> int:
     overlay = Overlay(cfg, files, cache)
     overlay.present()
     cache.start()          # after show: placeholders paint first, thumbs stream in
+    QThreadPool.globalInstance().start(_UpdateProbe())   # network, off the launch path
     return app.exec()
 
 
@@ -834,11 +951,27 @@ def main(argv: list[str] | None = None) -> int:
                     help="set a random wallpaper and exit (no UI)")
     ap.add_argument("--config", action="store_true",
                     help="print the config file path and exit")
+    ap.add_argument("--version", action="version", version=f"gladius {__version__}")
+    ap.add_argument("--check-updates", action="store_true",
+                    help="check for a newer release now and exit")
     ap.add_argument("--windowed", action="store_true", help=argparse.SUPPRESS)  # debug
     args = ap.parse_args(argv)
 
     if args.config:
         print(CONFIG_PATH)
+        return 0
+
+    if args.check_updates:
+        latest = fetch_latest_version()
+        if latest is None:
+            print("Could not reach GitHub to check for updates.")
+            return 1
+        write_update_cache({"latest": latest, "checked_at": time.time()})
+        if is_newer(latest):
+            print(f"gladius {latest} is available (you have {__version__}).")
+            print(f"Upgrade: {upgrade_command()}")
+        else:
+            print(f"gladius {__version__} is up to date.")
         return 0
 
     cfg = Config.load()

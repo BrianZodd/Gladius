@@ -207,5 +207,100 @@ class RandomPickTests(unittest.TestCase):
         self.assertIsNone(gladius.pick_random([], ""))
 
 
+class VersionTests(unittest.TestCase):
+    def test_parses_with_and_without_v_prefix(self):
+        self.assertEqual(gladius.parse_version("v1.2.3"), (1, 2, 3))
+        self.assertEqual(gladius.parse_version("1.2.3"), (1, 2, 3))
+
+    def test_short_and_long_forms(self):
+        self.assertEqual(gladius.parse_version("2.0"), (2, 0))
+        self.assertEqual(gladius.parse_version("1.2.3.4"), (1, 2, 3, 4))
+
+    def test_garbage_parses_to_empty(self):
+        """A tag we can't read must never be treated as a version."""
+        for junk in ("", "latest", "v", "nightly-build", None):
+            self.assertEqual(gladius.parse_version(junk), ())
+
+    def test_is_newer_compares_numerically(self):
+        self.assertTrue(gladius.is_newer("1.0.10", "1.0.9"))    # not string order
+        self.assertTrue(gladius.is_newer("v1.1.0", "1.0.0"))
+        self.assertFalse(gladius.is_newer("1.0.0", "1.0.0"))
+        self.assertFalse(gladius.is_newer("0.9.0", "1.0.0"))
+
+    def test_unequal_lengths(self):
+        self.assertTrue(gladius.is_newer("1.1", "1.0.9"))
+        self.assertFalse(gladius.is_newer("1.0", "1.0.0"))
+
+    def test_unreadable_version_is_never_newer(self):
+        """Fail closed: a garbage tag must not nag the user to 'upgrade'."""
+        self.assertFalse(gladius.is_newer("garbage", "1.0.0"))
+        self.assertFalse(gladius.is_newer("1.0.1", "garbage"))
+
+
+class UpdateCacheTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.path = Path(self.tmp.name) / "update.json"
+        p = mock.patch.object(gladius, "UPDATE_CACHE", self.path)
+        p.start()
+        self.addCleanup(p.stop)
+        self.addCleanup(self.tmp.cleanup)
+
+    def test_missing_cache_reads_as_empty(self):
+        self.assertEqual(gladius.read_update_cache(), {})
+
+    def test_corrupt_cache_reads_as_empty(self):
+        self.path.write_text("{not json")
+        self.assertEqual(gladius.read_update_cache(), {})
+
+    def test_round_trip(self):
+        gladius.write_update_cache({"latest": "1.2.0", "checked_at": 100.0})
+        self.assertEqual(gladius.read_update_cache()["latest"], "1.2.0")
+
+    def test_unwritable_cache_does_not_raise(self):
+        """The cache is a nicety; losing it must never break a launch."""
+        with mock.patch.object(Path, "write_text", side_effect=OSError):
+            gladius.write_update_cache({"latest": "1.2.0"})
+
+    def test_should_check_when_never_checked(self):
+        self.assertTrue(gladius.should_check({}, now=1000.0))
+
+    def test_should_not_check_inside_the_interval(self):
+        cache = {"checked_at": 1000.0}
+        self.assertFalse(gladius.should_check(cache, now=1000.0 + 60))
+
+    def test_should_check_after_the_interval(self):
+        cache = {"checked_at": 1000.0}
+        self.assertTrue(
+            gladius.should_check(cache, now=1000.0 + gladius.UPDATE_INTERVAL + 1))
+
+    def test_clock_moved_backwards_still_checks(self):
+        """A stale future timestamp must not wedge the check off forever."""
+        self.assertTrue(gladius.should_check({"checked_at": 9e12}, now=1000.0))
+
+    def test_pending_update_only_when_newer(self):
+        gladius.write_update_cache({"latest": "0.1.0", "checked_at": 1.0})
+        self.assertIsNone(gladius.pending_update(current="1.0.0"))
+        gladius.write_update_cache({"latest": "9.9.9", "checked_at": 1.0})
+        self.assertEqual(gladius.pending_update(current="1.0.0"), "9.9.9")
+
+
+class UpgradeCommandTests(unittest.TestCase):
+    def test_scoop_install_gets_scoop_command(self):
+        p = r"C:\Users\x\scoop\apps\gladius\current\gladius.exe"
+        self.assertIn("scoop update", gladius.upgrade_command(p))
+
+    def test_winget_install_gets_winget_command(self):
+        p = r"C:\Users\x\AppData\Local\Microsoft\WinGet\Packages\BrianZodd.Gladius_x\gladius.exe"
+        self.assertIn("winget upgrade", gladius.upgrade_command(p))
+
+    def test_unknown_location_points_at_releases(self):
+        self.assertIn("github.com", gladius.upgrade_command(r"D:\tools\gladius.exe"))
+
+    def test_detection_is_case_insensitive(self):
+        p = r"C:\Users\x\SCOOP\Apps\Gladius\current\gladius.exe"
+        self.assertIn("scoop update", gladius.upgrade_command(p))
+
+
 if __name__ == "__main__":
     unittest.main()
