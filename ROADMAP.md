@@ -31,7 +31,8 @@
   wallpapers live in **subfolders** (the scan is recursive by design); MSIX-packaged
   Python hosts redirect `%LOCALAPPDATA%` writes, so the wallpaper path is resolved to a
   real location before it reaches `SystemParametersInfoW`.
-- **Git**: `main`, no remote yet. v1 tip = `stage 9: license + public-facing docs`.
+- **Git**: `main`, pushed to `origin` = **github.com/BrianZodd/Gladius (private)**. Release
+  workflow proven green via `workflow_dispatch`; no tag cut yet.
 - **Blueprint**: complete — stages 0–9 all shipped. (Stage R verdicts: acrylic = WCA
   attempt B; komorebi = `Qt.Tool` alone passes — method and measurements in ARCHIVE.md.)
 
@@ -111,18 +112,20 @@ already verified, so the pass is a confirmation rather than a re-investigation.
 
 ## Release-day sequence
 
-Everything below is blocked purely on the repo being public — no code work remains.
+Already done: the repo exists at **github.com/BrianZodd/Gladius (private)**, `main` is
+pushed, and the release workflow has been proven green twice via `workflow_dispatch` —
+tests, build, exe smoke-test and a 46 MB artifact, matching the local build. No code work
+remains; everything below is blocked purely on the shakedown finishing.
 
-1. **Push `workflow` scope** — `gh auth refresh -s workflow`, or the push of
-   `.github/workflows/release.yml` is rejected.
-2. **Create the GitHub repo** as `BrianZodd/Gladius` and push `main`.
-3. **Rewrite history first** if that is the chosen route (see the grep-audit box) — far
-   cheaper before anyone has cloned it.
-4. **Flip public.**
-5. **Tag `v1.0.0` and push it.** CI runs the tests, builds, smoke-tests the exe, publishes
-   the Release with the zip + `.sha256`, and commits the Scoop manifest into `bucket/`.
-6. **Verify the two install routes for real**: `scoop bucket add gladius
+1. **Rewrite history** if that is the chosen route (see the grep-audit box) — far cheaper
+   now than after anyone has cloned it.
+2. **Flip public.**
+3. **Tag `v1.0.0` and push it.** CI then runs the tag-gated half it has not yet exercised:
+   the version/tag match check, `gh release create` with the zip + `.sha256`, and the
+   commit of `bucket/gladius.json`. Watch this run — it is the only part never tested,
+   because a tag build cannot be rehearsed without cutting a release.
+4. **Verify the two install routes for real**: `scoop bucket add gladius
    https://github.com/BrianZodd/Gladius && scoop install gladius/gladius`, and confirm the
    zip downloads and runs from the releases page.
-7. **Submit the winget PR** — `wingetcreate submit dist/manifests/winget` (details in
-   `packaging/RELEASING.md`). This is the only step gated on someone else's review.
+5. **Submit the winget PR** — `wingetcreate submit dist/manifests/winget` (details in
+   `packaging/RELEASING.md`). The only step gated on someone else's review.
