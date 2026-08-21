@@ -7,6 +7,7 @@ The append-only ledger of *what changed and why* — project substance (product 
 ## Index
 - 2026-08-20 — Founding design calls (forge session)
 - 2026-08-20 — v1 build session (spike verdicts, production hardening, live acceptance)
+- 2026-08-20 — Scaffold retirement + release gated behind shakedown testing
 
 ---
 
@@ -36,7 +37,8 @@ Decisions from the nova-forge pass that shaped `SPEC.md`, with the trade-offs:
   as tested fallback — self-contained beats config-editing another tool; the live test
   decides, outcome to be logged here.
 - **No DESIGN.md** — the design identity is "faithful reproduction of the original strip,"
-  fully specified in SPEC §3; a seventh doc would be scaffolding for its own sake.
+  and the parity detail it would hold now lives in ARCHIVE.md's v1 design reference; a
+  seventh doc would be scaffolding for its own sake.
 
 ## 2026-08-20 — v1 build session (spike verdicts, production hardening, live acceptance)
 
@@ -102,15 +104,15 @@ users instead of failing silently.
 
 ### Live acceptance outcome (2026-08-20)
 
-SPEC §9 ran as a mix of machine-driven checks and one live human check. What each box rests
-on, stated honestly:
+The eight acceptance criteria ran as a mix of machine-driven checks and one live human
+check. Each criterion is restated below with what its result actually rests on:
 
 | Criterion | Result | Verified by |
 |---|---|---|
 | 1. Hotkey summons the overlay; komorebi does not fight it | PASS | **Live**, under running komorebi with the real `alt + w` binding |
 | 1. Warm launch ≲1.5 s | PASS (0.30 s) | Timed from process start to window visible |
 | 2. Cold run streams thumbnails behind placeholders; warm run instant | PASS | Cold run generated all 72 thumbnails with placeholders painting first |
-| 3. Every key + wheel/drag/click per SPEC §3 | PASS | Synthetic Qt events against the real `Overlay` (22 assertions) |
+| 3. Every key + wheel/drag/click per the key table (now in README.md) | PASS | Synthetic Qt events against the real `Overlay` (22 assertions) |
 | 4. `.jpg` / `.png` / `.jfif` direct, `.webp` via transcode, fit mode respected | PASS | Registry values asserted per mode; Windows' own `TranscodedImageCache` confirms it consumed each source |
 | 5. `--random` sets a wallpaper with no window | PASS | Exit 0, wallpaper changed, picked from a subfolder |
 | 6. Settings rows apply live and survive restart | PASS | All six rows cycled, applied, and re-read from `config.json` (22 assertions) |
@@ -127,3 +129,42 @@ by-feel pass over navigation and picking is still worth doing and is not blockin
 
 **komorebi verdict, confirmed with the real app**: `Qt.Tool` alone is sufficient. No
 `applications.json` rule, no manual ex-style set. Gladius edits no other tool's config.
+
+---
+
+## 2026-08-20 — Scaffold retirement + release gated behind shakedown testing
+
+**The three planning scaffolds are gone from the tree.** `SPEC.md`, `BLUEPRINT.md` and
+`RESEARCH-notes.md` each carried a `DELETE WHEN` header; all three conditions were met once
+v1 shipped and live acceptance passed, so they were distilled and deleted rather than left
+to rot into a second, drifting source of truth beside the six permanent docs.
+
+Where each part landed, verified by grep before the deletion was allowed to stand:
+
+| From the scaffolds | Now lives in |
+|---|---|
+| Parity table, layout maths, non-goals | ARCHIVE.md — v1 design reference |
+| Build staging, R1/R2 spike method + measurements | ARCHIVE.md — v1 build record |
+| Spike *verdicts* and why each API won | this file — Runtime spike verdicts |
+| The eight acceptance criteria + what each result rests on | this file — Live acceptance outcome |
+| Win32 constants (`ACCENT_*`, `WCA_*`, the acrylic tint) | `gladius.py` — named constants |
+| Keys, config reference, integration guide | README.md |
+| Everything, verbatim | git history |
+
+The one judgement call worth recording: the acrylic tint deviation (`0x99000000` → the
+measured `0x30000000`) was deliberately kept in *this* file rather than only as a code
+comment, because the value looks arbitrary and a future reader would otherwise be tempted
+to "correct" it back to the planned constant — which renders the blur invisible.
+
+**Public release is gated behind real-world testing** (Brian's call). v1 is functionally
+complete and the pre-release gate is largely satisfied, but a scripted acceptance run
+cannot judge how the thing *feels* in daily use, and a wallpaper picker is almost entirely
+feel. A new Shakedown phase sits between acceptance and release; the repo stays private
+until it clears. The trade-off accepted: a finished v1 sits unpublished for a while, in
+exchange for not shipping annoyances that only surface after the hundredth `alt + w`.
+
+**Deferred to the release push, not done now**: git history still contains `SPEC.md` and
+`BLUEPRINT.md` with 12 machine-path references. The working tree is clean, so this blocks
+nothing until the repo actually goes public — at which point history needs a targeted
+rewrite (strip those two files from all commits, keeping the stage-by-stage story) or a
+squash. Recorded here so it cannot be forgotten at the moment it starts to matter.

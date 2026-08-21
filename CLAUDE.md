@@ -55,6 +55,6 @@ free of Node tooling.
    inside it.
 5. **Registry writes are limited** to the fit-mode keys under `HKCU\Control Panel\Desktop`
    (`WallpaperStyle`, `TileWallpaper`).
-6. **"Done" means the live acceptance run passed** — the checklist in ROADMAP.md's
-   pre-release gate (from SPEC §9), executed on the real machine under running komorebi,
-   not just unit-level checks.
+6. **"Done" means the live acceptance run passed** — the pre-release gate in ROADMAP.md,
+   judged against the acceptance criteria and their results in DECISIONS.md, executed on
+   the real machine under running komorebi, not just unit-level checks.

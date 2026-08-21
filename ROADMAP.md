@@ -17,11 +17,14 @@
   `unittest` tests green, live acceptance passed under running komorebi, MIT `LICENSE`
   added and `README.md` completed for a stranger. The three planning scaffolds were
   distilled into ARCHIVE.md / DECISIONS.md and deleted per their headers.
-- **Next step**: the pre-release gate below — a pass over the five boxes, then flip the
-  repo public. Nothing in the code is blocking it.
-- **Open / needs user**: whether to squash history before going public. `SPEC.md` and
-  `BLUEPRINT.md` are deleted from the tree but remain in git history, and they carry
-  personal references (see the grep-audit box).
+- **Next step**: **shakedown testing** — live with the app under the real `alt + w` binding
+  and shake out what a scripted acceptance run cannot reach (feel of the scrolling, odd
+  wallpapers, day-to-day annoyances). Public release is explicitly gated behind this; the
+  pre-release gate below comes after, not before.
+- **Open / needs user**: nothing blocking. Deferred until the public push is actually on
+  the table: `SPEC.md` and `BLUEPRINT.md` are gone from the tree but survive in git
+  history carrying machine paths (12 hits, confined to those two files), so history wants
+  a squash or rewrite before the repo is flipped public.
 - **Gotchas**: whkd reads its config at startup only (restart after editing whkdrc);
   wallpapers live in **subfolders** (the scan is recursive by design); MSIX-packaged
   Python hosts redirect `%LOCALAPPDATA%` writes, so the wallpaper path is resolved to a
@@ -39,8 +42,10 @@ Ship a polished, faithful Windows port of hyprquickpaper, then keep it healthy.
    whkd + komorebi integration. ✅ 2026-08-20
 3. **Live acceptance** — acceptance checklist on the real machine; komorebi outcome logged
    in DECISIONS.md. ✅ 2026-08-20
-4. **Public release** — pre-release gate below, repo → public.
-5. **Maintenance** — bug fixes only; feature ideas park in Active to-dos.
+4. **Shakedown** — real-world use on the daily driver; fix what only living with it reveals.
+   *(current phase — gates release, added 2026-08-20)*
+5. **Public release** — pre-release gate below (incl. history rewrite), repo → public.
+6. **Maintenance** — bug fixes only; feature ideas park in Active to-dos.
 
 ## Active to-dos
 
