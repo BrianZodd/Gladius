@@ -16,15 +16,19 @@ port of [hyprquickpaper](https://github.com/iamsurjog/hyprquickpaper) (Linux/Way
 → pick → wallpaper set via Win32 → app exits. Free and open source (MIT); repo private for
 now, public later. Short build, then maintenance-only.
 
-**Status**: planning complete (2026-08-20). Approved design in `SPEC.md`; execution plan in
-`BLUEPRINT.md` (both temporary scaffold docs — see their headers). No code yet.
+**Status**: v1 shipped 2026-08-20 — built, live-tested under komorebi, maintenance mode.
+`gladius.py` (~860 lines) + `test_gladius.py` (28 tests). The planning scaffolds (`SPEC.md`,
+`BLUEPRINT.md`, `RESEARCH-notes.md`) have self-destructed per their headers; their essence is
+in ARCHIVE.md and DECISIONS.md. Remaining before the repo goes public: the pre-release gate
+in ROADMAP.md.
 
 ## Stack & layout
 
-- Python 3.12 + PySide6 (only dependency); single-file app `gladius.py`.
+- Python 3.12 + PySide6 (only dependency); single-file app `gladius.py`. Tests are stdlib
+  `unittest` in `test_gladius.py` — `python -m unittest test_gladius -v`.
 - User config auto-creates at `%APPDATA%\Gladius\config.json`; thumbnail cache and transcode
   scratch under `%LOCALAPPDATA%\Gladius\`. Nothing user-specific is committed.
-- Host integration (Brian's laptop): whkd hotkey `alt + w` in `~/.config/whkdrc` (whkd reads
+- Host integration (dev machine): whkd hotkey `alt + w` in `~/.config/whkdrc` (whkd reads
   config at startup only — restart it after edits); komorebi kept away via the `Qt.Tool`
   window flag, `~/applications.json` float rule as tested fallback.
 
@@ -35,6 +39,9 @@ This repo runs the Nova six-doc system (`nova-documentation` skill is the method
 ARCHIVE.md + DECISIONS.md (section-scoped) · AGENTS.md · README.md (public landing page).
 Links are kept minimal in lieu of a `check-links` npm gate — this is a Python repo staying
 free of Node tooling.
+
+**Where v1's history lives**: design reference and build/measurement record → ARCHIVE.md
+(2026-08-20 sections); why each call was made → DECISIONS.md. Read the section, not the file.
 
 ## Invariants
 

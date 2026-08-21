@@ -40,7 +40,7 @@ Decisions from the nova-forge pass that shaped `SPEC.md`, with the trade-offs:
 
 ## 2026-08-20 — v1 build session (spike verdicts, production hardening, live acceptance)
 
-### Runtime spike verdicts (Stage R — full method and measurements in RESEARCH-notes.md)
+### Runtime spike verdicts (Stage R — full method and measurements in ARCHIVE.md)
 
 - **Acrylic = `SetWindowCompositionAttribute` (`ACCENT_ENABLE_ACRYLICBLURBEHIND`).** The
   documented Win11 `DWMWA_SYSTEMBACKDROP_TYPE` returns `S_OK` but paints a flat opaque grey

@@ -10,31 +10,35 @@
 
 ## Current focus
 
-*(2026-08-20 — planning session)*
+*(2026-08-20 — v1 build session)*
 
-- **Done this session**: prior-art sweep of hyprquickpaper (no license → lessons only);
-  design forged and approved (`SPEC.md`); six-doc system scaffolded; execution plan written
-  (`BLUEPRINT.md`) for a fresh Opus session.
-- **Next step**: fresh session executes `BLUEPRINT.md` stage by stage (build → integrate →
-  live-test).
-- **Open / needs user**: none — plan is self-contained.
+- **Done this session**: all blueprint stages executed — `gladius.py` built bottom-up
+  (config → scan/cache → Win32 setter → CLI → strip → overlay → settings pane), 28 stdlib
+  `unittest` tests green, live acceptance passed under running komorebi, MIT `LICENSE`
+  added and `README.md` completed for a stranger. The three planning scaffolds were
+  distilled into ARCHIVE.md / DECISIONS.md and deleted per their headers.
+- **Next step**: the pre-release gate below — a pass over the five boxes, then flip the
+  repo public. Nothing in the code is blocking it.
+- **Open / needs user**: whether to squash history before going public. `SPEC.md` and
+  `BLUEPRINT.md` are deleted from the tree but remain in git history, and they carry
+  personal references (see the grep-audit box).
 - **Gotchas**: whkd reads its config at startup only (restart after editing whkdrc);
-  komorebi runs elevated and will fight any managed window — `Qt.Tool` must be verified
-  live; wallpapers live in **subfolders** (scan must be recursive).
-- **Git**: repo initialized 2026-08-20; single planning commit on `main` (docs scaffold +
-  SPEC.md + BLUEPRINT.md). No remote yet.
-- **Blueprint**: BLUEPRINT.md — stage 8/9 done (live acceptance passed under komorebi), next: Stage 9. (Stage R spikes done: acrylic
-  = WCA attempt B, komorebi = `Qt.Tool` alone passes — see RESEARCH-notes.md.)
+  wallpapers live in **subfolders** (the scan is recursive by design); MSIX-packaged
+  Python hosts redirect `%LOCALAPPDATA%` writes, so the wallpaper path is resolved to a
+  real location before it reaches `SystemParametersInfoW`.
+- **Git**: `main`, no remote yet. v1 tip = `stage 9: license + public-facing docs`.
+- **Blueprint**: complete — stages 0–9 all shipped. (Stage R verdicts: acrylic = WCA
+  attempt B; komorebi = `Qt.Tool` alone passes — method and measurements in ARCHIVE.md.)
 
 ## Mission & phases
 
 Ship a polished, faithful Windows port of hyprquickpaper, then keep it healthy.
 
 1. **Plan** — forge spec, scaffold docs, write blueprint. ✅ 2026-08-20
-2. **Build v1** — execute BLUEPRINT.md: `gladius.py` per SPEC, config, cache, settings pane,
-   `--random`, whkd + komorebi integration.
-3. **Live acceptance** — SPEC §9 checklist on the real machine; log komorebi test outcome in
-   DECISIONS.md.
+2. **Build v1** — `gladius.py` per spec: config, cache, settings pane, `--random`,
+   whkd + komorebi integration. ✅ 2026-08-20
+3. **Live acceptance** — acceptance checklist on the real machine; komorebi outcome logged
+   in DECISIONS.md. ✅ 2026-08-20
 4. **Public release** — pre-release gate below, repo → public.
 5. **Maintenance** — bug fixes only; feature ideas park in Active to-dos.
 
@@ -66,12 +70,25 @@ Ship a polished, faithful Windows port of hyprquickpaper, then keep it healthy.
 
 Before flipping the repo public:
 
-- [ ] All SPEC §9 acceptance criteria passed live (komorebi running, real hotkey).
+Boxes stay unticked for a deliberate human pass; the note under each records what was
+already verified, so the pass is a confirmation rather than a re-investigation.
+
+- [ ] All acceptance criteria passed live (komorebi running, real hotkey).
+      → *Done 2026-08-20 — outcome logged in DECISIONS.md, evidence kept in ARCHIVE.md
+      (0.30 s warm launch, format matrix confirmed against `TranscodedImageCache`).*
 - [ ] `LICENSE` (MIT) present; README complete for a stranger (install, keys, config
       reference, whkd/komorebi guide, hyprquickpaper credit).
-- [ ] Grep-audit: no `Brian`, `UserData`, machine paths, or personal data anywhere in
-      tracked files or git history (history is clean if this holds from commit one).
-- [ ] Temporary scaffolds distilled and deleted (`SPEC.md`, `BLUEPRINT.md` per their
-      headers).
-- [ ] A fresh-machine smoke test (or honest dry-run review): clean clone + `pip install
-      PySide6` + run — works with zero repo edits.
+      → *Done — README's config table checked key-by-key against `Config` in `gladius.py`.*
+- [ ] Grep-audit: no personal data anywhere in tracked files **or git history**.
+      → *Tracked tree is clean: `gladius.py`, `test_gladius.py`, `README.md` and
+      `AGENTS.md` have zero hits; the remainder sit in `LICENSE` (copyright) and the
+      private-history docs. **Git history is NOT clean** — the planning commit still
+      carries `SPEC.md`/`BLUEPRINT.md` with personal references. Squash or rewrite
+      history before flipping public.*
+- [ ] Temporary scaffolds distilled and deleted.
+      → *Done — removed in `stage 9`; their essence lives in ARCHIVE.md / DECISIONS.md.*
+- [ ] A fresh-machine smoke test: clean clone + `pip install PySide6` + run — works with
+      zero repo edits.
+      → *Dry-run review passed: no absolute paths in `gladius.py`, every directory resolves
+      through `%APPDATA%`/`%LOCALAPPDATA%` + `SHGetKnownFolderPath`. An actual run on a
+      second machine is still untested.*

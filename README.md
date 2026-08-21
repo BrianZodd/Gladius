@@ -1,36 +1,194 @@
 # Gladius
 
-A keyboard-driven wallpaper picker overlay for Windows — a faithful port of
-[hyprquickpaper](https://github.com/iamsurjog/hyprquickpaper) to PySide6. Press a hotkey,
-scroll a strip of wallpaper thumbnails with vim keys, hit Enter, done.
+A keyboard-driven wallpaper picker for Windows.
 
-> **Status**: pre-v1 — under construction. This README fills out as v1 lands.
+Press a hotkey, and a translucent overlay drops over everything: a horizontal strip of your
+wallpapers, sheared into leaning parallelograms. Scroll it with vim keys, hit `Space`, and the
+wallpaper changes and the app is gone. No tray icon, no daemon, no window to manage — it lives
+for a few seconds at a time.
 
-## Run it locally
+Gladius is a faithful Windows port of
+[hyprquickpaper](https://github.com/iamsurjog/hyprquickpaper) (Hyprland/Wayland). Same look,
+same keys, same idea — rewritten from scratch in Python + PySide6, with the original's three
+best-known papercuts fixed. One file, one dependency, MIT licensed.
 
 ```
 pip install PySide6
 python gladius.py
 ```
 
-`gladius.py --random` sets a random wallpaper with no UI.
+## Requirements
 
-Configuration auto-creates at `%APPDATA%\Gladius\config.json` on first run.
+| | |
+|---|---|
+| **OS** | Windows 10 or 11 |
+| **Python** | 3.10 or newer (developed and tested on 3.12) |
+| **Dependencies** | PySide6 — that's the whole list |
 
-## Documentation
+## Install
 
-The source of truth lives in the repo:
+```bash
+git clone https://github.com/<you>/gladius.git
+cd gladius
+pip install -r requirements.txt
+python gladius.py
+```
+
+On first run Gladius creates `%APPDATA%\Gladius\config.json` with defaults and points
+`wallpaper_path` at `<your Pictures folder>\Wallpapers`. If your wallpapers live somewhere
+else, edit that one value — `python gladius.py --config` prints the path to the file.
+
+Launch it with **`pythonw.exe`** rather than `python.exe` to avoid a console window flashing
+on screen. That's what the hotkey setup below does.
+
+## Keys
+
+| Key | Action |
+|---|---|
+| `J` / `→` | next wallpaper |
+| `K` / `←` | previous wallpaper |
+| `D` | forward one screenful |
+| `U` | back one screenful |
+| `Space` / `Enter` | set the wallpaper and exit |
+| `Esc` | exit, changing nothing |
+| `S` | open/close the settings panel |
+
+Mouse works too: the wheel and click-drag scroll the strip, and a click on a tile selects and
+sets it.
+
+**Settings panel** (`S`) — `J`/`K` (or `↑`/`↓`) move between rows, `H`/`L` (or `←`/`→`) change
+the value, `Esc` or `S` closes it. Every change applies to the overlay immediately *and* is
+written straight to `config.json`, so it survives the next launch.
+
+## Command line
+
+| Command | What it does |
+|---|---|
+| `gladius.py` | open the picker overlay |
+| `gladius.py --random` | set a random wallpaper and exit — no window at all |
+| `gladius.py --config` | print the path to your config file |
+
+Launching a second time while the overlay is open does nothing, so a mashed hotkey can't stack
+overlays.
+
+## Configuration
+
+`%APPDATA%\Gladius\config.json`. Every key is optional — anything missing, unknown, or
+unusable falls back to its default rather than failing to launch.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `wallpaper_path` | `<Pictures>\Wallpapers` | folder to read wallpapers from |
+| `recursive` | `true` | include subfolders |
+| `number_of_pictures` | `7` | tiles visible at once (3–15); also the `D`/`U` jump size |
+| `border_color` | `"#C27B63"` | selection border — any colour Qt understands (`"#RRGGBB"`, `"#RGB"`, or a name like `"steelblue"`) |
+| `backdrop` | `"dim"` | `"dim"` or `"acrylic"` (Windows blur-behind) |
+| `dim_opacity` | `0.7` | how dark the dim backdrop is, `0.0`–`1.0` |
+| `shear` | `true` | lean the tiles into parallelograms, like the original |
+| `fit_mode` | `"fill"` | `fill`, `fit`, `span`, `stretch`, `center`, `tile` |
+| `cache_batch_size` | `8` | thumbnail worker threads |
+| `on_select_command` | `null` | run this instead of setting the wallpaper; `{path}` is replaced with the image path |
+
+`on_select_command` is the escape hatch for anyone who wants something else to handle the
+wallpaper — a theming tool, a script, another wallpaper engine:
+
+```json
+"on_select_command": "wal -i \"{path}\""
+```
+
+Supported image formats: `.jpg` `.jpeg` `.jfif` `.png` `.bmp` `.webp` `.gif` `.avif`.
+Windows itself can't set the last few, so Gladius quietly converts those to PNG in
+`%LOCALAPPDATA%\Gladius\set\` and sets that instead — from your side it just works.
+
+## Hotkey setup
+
+Gladius is a launcher, so bind it to whatever hotkey daemon you already run.
+
+**[whkd](https://github.com/LGUG2Z/whkd)** — add to `~/.config/whkdrc`:
+
+```
+alt + w : & 'C:\path\to\pythonw.exe' 'C:\path\to\gladius.py'
+```
+
+> whkd reads its config **only at startup** — restart whkd after editing, or the binding
+> won't exist.
+
+**Windows shortcut** — make a shortcut whose target is
+`"C:\path\to\pythonw.exe" "C:\path\to\gladius.py"`, then set a shortcut key in its properties.
+
+**Wallpaper rotation at logon** — Task Scheduler, trigger *At log on*, action
+`"C:\path\to\pythonw.exe" "C:\path\to\gladius.py" --random`. `--random` never opens a window
+or a dialog, so it's safe to run unattended.
+
+## Tiling window managers
+
+Gladius creates its overlay as a tool window (`WS_EX_TOOLWINDOW`), which tiling window
+managers skip by design — it floats above your layout instead of being tiled into it.
+
+Verified against [komorebi](https://github.com/LGUG2Z/komorebi): the overlay keeps its exact
+fullscreen geometry, nothing else on screen gets retiled, and focus returns to the window you
+were using when it closes. **No float rule or config change is needed** — if your window
+manager does try to manage it, that's a bug worth reporting.
+
+## What's different from hyprquickpaper
+
+Behaviour is a faithful port. Three things were deliberately changed, all fixes for issues the
+original documents in its own README:
+
+- **Thumbnails can't go stale.** The cache is keyed by path + modification time + size, so
+  renaming or editing an image regenerates its thumbnail instead of showing the old one.
+- **No blank first run.** Thumbnails are generated in-process and each tile repaints the
+  moment its own thumbnail lands, so a cold start shows placeholders filling in live rather
+  than an empty strip until you restart.
+- **Subfolders can't collide.** Cache keys are hashes of the full path, so two images with the
+  same filename in different folders can't overwrite each other's thumbnails.
+
+One small addition: the selection starts on your *current* wallpaper when it's in the folder,
+rather than always at the first tile.
+
+## Notes on odd setups
+
+Gladius tries hard to work on machines that aren't the one it was written on.
+
+- **Any resolution and DPI.** Tile size and thumbnail resolution scale to the display, so it
+  stays sharp on a 4K or high-DPI panel and still lays out sensibly on a small laptop screen.
+- **Redirected user folders.** The Pictures folder is resolved through the Windows known-folder
+  API, so it finds the real location even if you've moved your user folders off `C:\Users`.
+- **Microsoft Store Python** (and other MSIX-packaged hosts) redirect writes under
+  `%LOCALAPPDATA%` into a private per-package store that Explorer can't read. Gladius resolves
+  the wallpaper path before handing it to Windows, so converted images still apply. If you hit
+  anything else odd under Store Python, a regular python.org install is the smoother road.
+- **Locked-down machines.** If policy blocks the registry write, you lose the fit-mode setting,
+  not the wallpaper. If the thumbnail cache folder isn't writable, you get placeholder tiles
+  instead of a crash.
+- **Nothing to find?** If the wallpaper folder is empty or missing, Gladius says so in a dialog
+  naming the folder and your config file — it won't just silently fail to appear.
+
+## Repo layout
+
+Everything runs from `gladius.py` — a single file, plus a stdlib `unittest` suite:
+
+```
+gladius.py         the entire application
+test_gladius.py    unit tests:  python -m unittest test_gladius -v
+requirements.txt   PySide6
+```
+
+The project's own documentation lives in the repo:
 
 | Doc | What it holds |
 |---|---|
-| `CLAUDE.md` | Project memory + how-we-work doctrine (loaded every session) |
-| `ROADMAP.md` | The living roadmap + current focus / session handoff |
-| `ARCHIVE.md` | Retired detail (section-scoped) |
-| `DECISIONS.md` | What changed & why (section-scoped) |
-| `AGENTS.md` | Routing for AI tools → read `CLAUDE.md` first |
-| `README.md` | This file |
+| `CLAUDE.md` | project memory + working doctrine (loaded by AI tools every session) |
+| `ROADMAP.md` | current focus, phases, and what's parked for later |
+| `DECISIONS.md` | what changed and why — the reasoning behind the design |
+| `ARCHIVE.md` | retired detail kept for reference |
+| `AGENTS.md` | routing for AI tools → read `CLAUDE.md` first |
+| `README.md` | this file |
 
 ## Credits & license
 
-Behavior and look inspired by [hyprquickpaper](https://github.com/iamsurjog/hyprquickpaper)
-by iamsurjog — an original reimplementation, no code shared. MIT licensed.
+Look, keys, and behaviour follow [hyprquickpaper](https://github.com/iamsurjog/hyprquickpaper)
+by [iamsurjog](https://github.com/iamsurjog) — full credit for the idea and the design. This is
+an original reimplementation for Windows: no code is shared between the projects.
+
+MIT — see [LICENSE](LICENSE).
