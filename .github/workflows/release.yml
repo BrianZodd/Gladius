@@ -1,0 +1,115 @@
+name: release
+
+# Push a tag like v1.0.0 and this builds the Windows bundle and publishes the
+# release. The tag is the trigger *and* the version check: it must match
+# __version__ in gladius.py, or the job fails before building anything.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:            # lets you dry-run the build without tagging
+
+permissions:
+  contents: write               # needed to create the release
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # the bucket step needs real history to push to main
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+
+      - name: Run tests
+        run: python -m unittest test_gladius -v
+
+      - name: Check the tag matches __version__
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}" -replace '^v', ''
+          $src = Select-String -Path gladius.py -Pattern '^__version__\s*=\s*"([^"]+)"'
+          $ver = $src.Matches[0].Groups[1].Value
+          if ($tag -ne $ver) {
+            Write-Error "tag $tag does not match __version__ $ver in gladius.py"
+            exit 1
+          }
+          Write-Host "tag and __version__ agree: $ver"
+
+      - name: Build
+        run: python packaging/build.py
+
+      - name: Smoke-test the built exe
+        shell: pwsh
+        run: |
+          # A build that cannot even report its own version is not shippable.
+          $out = & .\dist\gladius\gladius.exe --version 2>&1 | Out-String
+          Write-Host "exe reported: $out"
+          if ($out -notmatch 'gladius \d+\.\d+') {
+            Write-Error "the built exe did not report a version"
+            exit 1
+          }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gladius-windows
+          path: |
+            dist/*.zip
+            dist/*.sha256
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" `
+            (Get-ChildItem dist/*.zip, dist/*.sha256 | ForEach-Object { $_.FullName }) `
+            --title "Gladius ${{ github.ref_name }}" `
+            --generate-notes
+
+      # The Scoop bucket lives in this repo, so publishing a release and updating
+      # the bucket should never be two jobs a human can do only one of. The hash
+      # here is the one from the artifact that was just uploaded, so the manifest
+      # cannot drift from what users actually download.
+      - name: Update the Scoop bucket
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          python packaging/render_manifests.py --from-dist
+
+          # A tag build checks out a detached HEAD, so move onto main before
+          # committing. dist/ is gitignored, so the rendered manifest survives.
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main
+          git checkout -B main origin/main
+
+          New-Item -ItemType Directory -Force bucket | Out-Null
+          Copy-Item dist/manifests/scoop/gladius.json bucket/gladius.json -Force
+          git add bucket/gladius.json
+          if (git diff --staged --quiet) {
+            Write-Host "bucket manifest already current"
+          } else {
+            git commit -m "scoop: bucket manifest for ${{ github.ref_name }}"
+            git push origin HEAD:main
+          }
+
+      - name: Stage the winget manifests for submission
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: actions/upload-artifact@v4
+        with:
+          name: winget-manifests
+          path: dist/manifests/winget

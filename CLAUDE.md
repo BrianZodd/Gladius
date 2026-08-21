@@ -28,6 +28,11 @@ in ROADMAP.md.
   `unittest` in `test_gladius.py` — `python -m unittest test_gladius -v`.
 - User config auto-creates at `%APPDATA%\Gladius\config.json`; thumbnail cache and transcode
   scratch under `%LOCALAPPDATA%\Gladius\`. Nothing user-specific is committed.
+- **Distribution**: `packaging/build.py` makes a PyInstaller *onedir* zip (never onefile —
+  it would unpack on every launch and kill the hotkey premise); tag `v*` fires
+  `.github/workflows/release.yml`, which builds, releases, and refreshes `bucket/`.
+  Channels are winget + Scoop, which is what makes it installable via UniGetUI. Runbook:
+  `packaging/RELEASING.md`.
 - Host integration (dev machine): whkd hotkey `alt + w` in `~/.config/whkdrc` (whkd reads
   config at startup only — restart it after edits); komorebi kept away via the `Qt.Tool`
   window flag, `~/applications.json` float rule as tested fallback.
@@ -47,8 +52,10 @@ free of Node tooling.
 
 1. **Nothing machine-specific is committed.** User config lives in `%APPDATA%\Gladius\`,
    generated files in `%LOCALAPPDATA%\Gladius\`; the repo must work verbatim for a stranger.
-2. **Single-file app, single dependency.** `gladius.py` + stdlib + PySide6. Any new file or
-   dependency needs a DECISIONS.md entry first.
+2. **Single-file app, single runtime dependency.** `gladius.py` + stdlib + PySide6 is the
+   whole application. Distribution scaffolding (`packaging/`, `.github/`, `bucket/`,
+   PyInstaller in `requirements-dev.txt`) is build-time only and never ships inside the
+   app. Any new file or dependency needs a DECISIONS.md entry first.
 3. **No code reuse from hyprquickpaper** — it has no license file. Lessons and behavior
    parity only; every line here is original.
 4. **The wallpaper folder is read-only to Gladius.** Never write, move, or rename anything

@@ -13,10 +13,12 @@
 *(2026-08-20 — v1 build session)*
 
 - **Done this session**: all blueprint stages executed — `gladius.py` built bottom-up
-  (config → scan/cache → Win32 setter → CLI → strip → overlay → settings pane), 28 stdlib
-  `unittest` tests green, live acceptance passed under running komorebi, MIT `LICENSE`
-  added and `README.md` completed for a stranger. The three planning scaffolds were
-  distilled into ARCHIVE.md / DECISIONS.md and deleted per their headers.
+  (config → scan/cache → Win32 setter → CLI → strip → overlay → settings pane), live
+  acceptance passed under running komorebi, MIT `LICENSE` added and `README.md` completed
+  for a stranger, planning scaffolds distilled into ARCHIVE.md / DECISIONS.md and deleted.
+  Then the **whole distribution path**: `__version__` + a non-blocking update check (47
+  tests green), a PyInstaller onedir build measured at 0.26 s startup, winget + Scoop
+  manifests (winget-validated), and a tag-driven release workflow.
 - **Next step**: **shakedown testing** — live with the app under the real `alt + w` binding
   and shake out what a scripted acceptance run cannot reach (feel of the scrolling, odd
   wallpapers, day-to-day annoyances). Public release is explicitly gated behind this; the
@@ -92,8 +94,31 @@ already verified, so the pass is a confirmation rather than a re-investigation.
       history before flipping public.*
 - [ ] Temporary scaffolds distilled and deleted.
       → *Done — removed in `stage 9`; their essence lives in ARCHIVE.md / DECISIONS.md.*
-- [ ] A fresh-machine smoke test: clean clone + `pip install PySide6` + run — works with
-      zero repo edits.
+- [ ] A fresh-machine smoke test: unzip the built bundle on a second machine and run it —
+      works with zero edits.
       → *Dry-run review passed: no absolute paths in `gladius.py`, every directory resolves
-      through `%APPDATA%`/`%LOCALAPPDATA%` + `SHGetKnownFolderPath`. An actual run on a
-      second machine is still untested.*
+      through `%APPDATA%`/`%LOCALAPPDATA%` + `SHGetKnownFolderPath`. The packaged exe was
+      smoke-tested here (`--version`, `--config`, `--check-updates` all correct), but an
+      actual run on a machine without Python is still untested — that is the one real gap.*
+- [ ] Distribution wired end to end.
+      → *Done — build script, release workflow, winget manifests (`winget validate` →
+      succeeded), Scoop bucket, and the in-app update check. Nothing here can be finished
+      remotely until the repo is public; see the release sequence below.*
+
+## Release-day sequence
+
+Everything below is blocked purely on the repo being public — no code work remains.
+
+1. **Push `workflow` scope** — `gh auth refresh -s workflow`, or the push of
+   `.github/workflows/release.yml` is rejected.
+2. **Create the GitHub repo** as `BrianZodd/Gladius` and push `main`.
+3. **Rewrite history first** if that is the chosen route (see the grep-audit box) — far
+   cheaper before anyone has cloned it.
+4. **Flip public.**
+5. **Tag `v1.0.0` and push it.** CI runs the tests, builds, smoke-tests the exe, publishes
+   the Release with the zip + `.sha256`, and commits the Scoop manifest into `bucket/`.
+6. **Verify the two install routes for real**: `scoop bucket add gladius
+   https://github.com/BrianZodd/Gladius && scoop install gladius/gladius`, and confirm the
+   zip downloads and runs from the releases page.
+7. **Submit the winget PR** — `wingetcreate submit dist/manifests/winget` (details in
+   `packaging/RELEASING.md`). This is the only step gated on someone else's review.

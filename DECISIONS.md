@@ -8,6 +8,7 @@ The append-only ledger of *what changed and why* — project substance (product 
 - 2026-08-20 — Founding design calls (forge session)
 - 2026-08-20 — v1 build session (spike verdicts, production hardening, live acceptance)
 - 2026-08-20 — Scaffold retirement + release gated behind shakedown testing
+- 2026-08-20 — Distribution: packaged exe, winget + Scoop, non-blocking update check
 
 ---
 
@@ -168,3 +169,65 @@ exchange for not shipping annoyances that only surface after the hundredth `alt 
 nothing until the repo actually goes public — at which point history needs a targeted
 rewrite (strip those two files from all commits, keeping the stage-by-stage story) or a
 squash. Recorded here so it cannot be forgotten at the moment it starts to matter.
+
+---
+
+## 2026-08-20 — Distribution: packaged exe, winget + Scoop, non-blocking update check
+
+Gladius had no answer to "how do I install this?" beyond cloning a repo and having
+Python. This adds the whole path from hearing about it to having it updated.
+
+### The artifact is decided by the product's own premise
+
+Ship a **zipped PyInstaller onedir bundle**, never onefile. Onefile unpacks the entire
+bundle to a temp folder on *every* launch — seconds, at PySide6's size — which would
+destroy the one thing Gladius is for. Measured here: onedir starts in **0.26 s**, actually
+*faster* than running `gladius.py` directly (0.33 s), against the 1.5 s budget. The 46 MB
+zip is the price of bundling Qt, and it buys an install that needs neither Python nor
+admin rights.
+
+That single artifact happens to fit every channel, which is why there is one build and not
+three: winget takes it as `zip` + `NestedInstallerType: portable`, Scoop unpacks it with a
+`bin` shim, and a manual download is just unzip-and-run.
+
+### winget + Scoop, and UniGetUI comes free
+
+UniGetUI is a front-end over winget, Scoop, Chocolatey and others — supporting the first
+two means it appears there with no extra packaging, which was the actual request.
+Chocolatey is deliberately skipped for now: it needs an account and a moderation queue per
+version, which is a poor fit for a v1 still in shakedown. The Scoop bucket lives in this
+repo under `bucket/` rather than a second repo, so there is one thing to make public.
+
+winget is the only step gated on someone else — it is a PR against Microsoft's
+`winget-pkgs`. The manifests validate clean locally (`winget validate` → *Manifest
+validation succeeded*), so that PR is prepared, not pending discovery.
+
+### The update check never touches the launch path
+
+The overlay reads a small cached JSON file and nothing else; the network request runs on
+the thread pool *after* the window is visible, at most once a day, so it can only ever
+affect the following launch. A modal "update available" dialog in front of a 3-second
+overlay would be exactly the papercut worth filing a bug about, so the signal is one quiet
+line in the footer naming the right command for how that copy was installed (detected from
+the executable path: Scoop, winget, or the releases page).
+
+**Gladius never updates itself.** Replacing a running executable on Windows fights file
+locks, and whichever package manager installed it already solves this correctly. Everything
+fails closed — an unparseable tag loses every comparison rather than inventing an upgrade,
+an unreachable GitHub leaves the cache untouched.
+
+### New files and the single-file invariant
+
+Invariant 2 governs the *application*, and it still holds: `gladius.py` is one file whose
+only runtime dependency is PySide6. Everything added here is distribution scaffolding that
+never ships inside the app — `packaging/` (build script, manifest renderer, runbook,
+manifest templates), `.github/workflows/release.yml`, `bucket/`, and
+`requirements-dev.txt` carrying PyInstaller as a build-time-only dependency. The invariant
+text has been sharpened to say *runtime* dependency so this distinction is explicit rather
+than assumed.
+
+The manifests are templates with a placeholder hash, rendered by
+`packaging/render_manifests.py`, because a version and hash only exist once an artifact is
+published — and hand-editing four files is how a hash ends up matching three of them. CI
+renders and commits the Scoop manifest itself using the hash of the artifact it just
+uploaded, so the bucket cannot drift from what users actually download.

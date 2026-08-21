@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
+#
+# Portable-in-a-zip: winget downloads the release zip, unpacks it, and registers
+# gladius.exe as a portable command alias. Nothing is "installed" in the
+# Add/Remove-Programs sense, which matches how the app actually works — it is a
+# launcher you bind to a hotkey, not a resident program.
+
+PackageIdentifier: BrianZodd.Gladius
+PackageVersion: 1.0.0
+MinimumOSVersion: 10.0.0.0
+InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: gladius\gladius.exe
+    PortableCommandAlias: gladius
+Installers:
+  - Architecture: x64
+    InstallerUrl: https://github.com/BrianZodd/Gladius/releases/download/v1.0.0/gladius-1.0.0-win64.zip
+    InstallerSha256: REPLACE_WITH_SHA256_OF_THE_PUBLISHED_ZIP
+ReleaseDate: 2026-08-20
+ManifestType: installer
+ManifestVersion: 1.6.0

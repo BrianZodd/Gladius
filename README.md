@@ -19,27 +19,63 @@ python gladius.py
 
 ## Requirements
 
-| | |
-|---|---|
-| **OS** | Windows 10 or 11 |
-| **Python** | 3.10 or newer (developed and tested on 3.12) |
-| **Dependencies** | PySide6 — that's the whole list |
+Windows 10 or 11. That's it — the packaged build bundles its own Python and PySide6.
+(Running from source instead needs Python 3.10+; see below.)
 
 ## Install
 
+Pick whichever you already use. All of them leave you with a `gladius` command.
+
+**winget**
+
 ```bash
-git clone https://github.com/<you>/gladius.git
-cd gladius
+winget install BrianZodd.Gladius
+```
+
+**Scoop**
+
+```bash
+scoop bucket add gladius https://github.com/BrianZodd/Gladius
+scoop install gladius/gladius
+```
+
+**[UniGetUI](https://www.marticliment.com/unigetui/)** — search for *Gladius* and install
+it from there; it shows up through whichever of winget or Scoop you have enabled.
+
+**Manual** — download `gladius-<version>-win64.zip` from the
+[releases page](https://github.com/BrianZodd/Gladius/releases/latest), unzip it anywhere,
+and run `gladius.exe`. Nothing goes into `Program Files` and nothing needs admin —
+uninstalling is deleting the folder.
+
+**From source** — needs Python 3.10 or newer:
+
+```bash
+git clone https://github.com/BrianZodd/Gladius.git
+cd Gladius
 pip install -r requirements.txt
 python gladius.py
 ```
 
+From source, launch with **`pythonw.exe`** rather than `python.exe` so no console window
+flashes on screen. The packaged `gladius.exe` already behaves that way.
+
 On first run Gladius creates `%APPDATA%\Gladius\config.json` with defaults and points
 `wallpaper_path` at `<your Pictures folder>\Wallpapers`. If your wallpapers live somewhere
-else, edit that one value — `python gladius.py --config` prints the path to the file.
+else, edit that one value — `gladius --config` prints the path to the file.
 
-Launch it with **`pythonw.exe`** rather than `python.exe` to avoid a console window flashing
-on screen. That's what the hotkey setup below does.
+## Updating
+
+If you installed through a package manager, update the normal way — `winget upgrade
+BrianZodd.Gladius` or `scoop update gladius` — or press Update in UniGetUI.
+
+Gladius checks GitHub for a newer release at most once a day, and when one exists the
+footer quietly tells you, naming the exact command for how your copy was installed. The
+check never happens on the launch path: the overlay reads a small cached file, and the
+network request runs in the background *after* the window is already up, so it can only
+affect the next launch. `gladius --check-updates` forces a check.
+
+Gladius never updates itself — swapping out a running executable on Windows is a good way
+to corrupt an install, and your package manager already does it properly.
 
 ## Keys
 
@@ -64,9 +100,13 @@ written straight to `config.json`, so it survives the next launch.
 
 | Command | What it does |
 |---|---|
-| `gladius.py` | open the picker overlay |
-| `gladius.py --random` | set a random wallpaper and exit — no window at all |
-| `gladius.py --config` | print the path to your config file |
+| `gladius` | open the picker overlay |
+| `gladius --random` | set a random wallpaper and exit — no window at all |
+| `gladius --config` | print the path to your config file |
+| `gladius --version` | print the version |
+| `gladius --check-updates` | check for a newer release right now |
+
+*(From source, that's `python gladius.py --random` and so on.)*
 
 Launching a second time while the overlay is open does nothing, so a mashed hotkey can't stack
 overlays.
@@ -107,18 +147,25 @@ Gladius is a launcher, so bind it to whatever hotkey daemon you already run.
 **[whkd](https://github.com/LGUG2Z/whkd)** — add to `~/.config/whkdrc`:
 
 ```
-alt + w : & 'C:\path\to\pythonw.exe' 'C:\path\to\gladius.py'
+alt + w : & 'C:\path\to\gladius.exe'
 ```
 
 > whkd reads its config **only at startup** — restart whkd after editing, or the binding
 > won't exist.
 
-**Windows shortcut** — make a shortcut whose target is
-`"C:\path\to\pythonw.exe" "C:\path\to\gladius.py"`, then set a shortcut key in its properties.
+**Windows shortcut** — make a shortcut whose target is `C:\path\to\gladius.exe`, then set a
+shortcut key in its properties.
 
 **Wallpaper rotation at logon** — Task Scheduler, trigger *At log on*, action
-`"C:\path\to\pythonw.exe" "C:\path\to\gladius.py" --random`. `--random` never opens a window
-or a dialog, so it's safe to run unattended.
+`"C:\path\to\gladius.exe" --random`. `--random` never opens a window or a dialog, so it's
+safe to run unattended.
+
+*(Running from source? Substitute `'C:\path\to\pythonw.exe' 'C:\path\to\gladius.py'` for
+`gladius.exe` in any of the above — `pythonw` is what keeps a console from flashing.)*
+
+To find where a package manager put the exe: `scoop which gladius`, or
+`winget list BrianZodd.Gladius` and look under
+`%LOCALAPPDATA%\Microsoft\WinGet\Packages\`.
 
 ## Tiling window managers
 
@@ -169,10 +216,15 @@ Gladius tries hard to work on machines that aren't the one it was written on.
 Everything runs from `gladius.py` — a single file, plus a stdlib `unittest` suite:
 
 ```
-gladius.py         the entire application
-test_gladius.py    unit tests:  python -m unittest test_gladius -v
-requirements.txt   PySide6
+gladius.py           the entire application
+test_gladius.py      unit tests:  python -m unittest test_gladius -v
+requirements.txt     PySide6
+requirements-dev.txt PyInstaller — build time only
+packaging/           build script, release runbook, winget + Scoop manifests
+bucket/              the Scoop bucket for this app
 ```
+
+Building the distributable yourself: see [packaging/RELEASING.md](packaging/RELEASING.md).
 
 The project's own documentation lives in the repo:
 

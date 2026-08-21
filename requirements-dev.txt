@@ -1,0 +1,2 @@
+# Build-time only. The app itself needs nothing but PySide6 (requirements.txt).
+pyinstaller>=6.22

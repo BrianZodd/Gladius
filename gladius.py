@@ -944,7 +944,40 @@ def _no_wallpapers_message(cfg: Config) -> str:
             f"Point 'wallpaper_path' at your wallpaper folder in:\n{CONFIG_PATH}")
 
 
+def _attach_parent_console() -> None:
+    """Give a frozen build working stdout/stderr when — and only when — someone
+    is there to read them.
+
+    The shipped exe is windowed so a hotkey launch never flashes a console, but
+    that leaves `sys.stdout` as None, so `--version` and friends would print into
+    the void. Fix: join the caller's console if it has one (AttachConsole only
+    ever joins an *existing* one, never creates one, so the no-flash guarantee
+    holds), then rebuild the streams from the real std handles.
+
+    Reopening the std handles rather than `CONOUT$` is what makes redirection
+    work: with `> out.txt` the handle is already the file, and writing to
+    `CONOUT$` would have gone to the console instead — silently losing the
+    output the user asked for."""
+    if not getattr(sys, "frozen", False) or sys.stdout is not None:
+        return
+    import msvcrt                       # Windows-only, and only needed when frozen
+    try:
+        k32 = ctypes.windll.kernel32
+        k32.AttachConsole(-1)                              # ATTACH_PARENT_PROCESS
+        k32.GetStdHandle.restype = ctypes.c_void_p
+        for name, stream_id in (("stdout", -11), ("stderr", -12)):
+            handle = k32.GetStdHandle(stream_id)
+            if not handle or handle == ctypes.c_void_p(-1).value:
+                continue                       # no console and no redirect — stay mute
+            fd = msvcrt.open_osfhandle(handle, 0)
+            setattr(sys, name, os.fdopen(fd, "w", buffering=1,
+                                         encoding="utf-8", errors="replace"))
+    except Exception:
+        pass                                   # no console is a fine place to be
+
+
 def main(argv: list[str] | None = None) -> int:
+    _attach_parent_console()
     ap = argparse.ArgumentParser(prog="gladius",
                                  description="Keyboard-driven wallpaper picker overlay.")
     ap.add_argument("--random", action="store_true",

@@ -1,0 +1,33 @@
+{
+    "version": "1.0.0",
+    "description": "A keyboard-driven wallpaper picker overlay for Windows.",
+    "homepage": "https://github.com/BrianZodd/Gladius",
+    "license": "MIT",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/BrianZodd/Gladius/releases/download/v1.0.0/gladius-1.0.0-win64.zip",
+            "hash": "REPLACE_WITH_SHA256_OF_THE_PUBLISHED_ZIP"
+        }
+    },
+    "extract_dir": "gladius",
+    "bin": "gladius.exe",
+    "shortcuts": [
+        [
+            "gladius.exe",
+            "Gladius"
+        ]
+    ],
+    "checkver": {
+        "github": "https://github.com/BrianZodd/Gladius"
+    },
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/BrianZodd/Gladius/releases/download/v$version/gladius-$version-win64.zip"
+            }
+        },
+        "hash": {
+            "url": "$url.sha256"
+        }
+    }
+}
