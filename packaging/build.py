@@ -41,7 +41,36 @@ def read_version() -> str:
     return m.group(1)
 
 
-def run_pyinstaller() -> Path:
+def write_version_file(version: str) -> Path:
+    """Windows version resource. Without one, Properties → Details is blank and
+    an unsigned exe looks that much more like something to be suspicious of."""
+    parts = [int(x) for x in version.split(".")]
+    while len(parts) < 4:
+        parts.append(0)
+    quad = ", ".join(str(x) for x in parts[:4])
+
+    BUILD.mkdir(parents=True, exist_ok=True)
+    path = BUILD / "version_info.txt"
+    path.write_text(f"""VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=({quad}), prodvers=({quad}),
+    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', 'Brian Gomez'),
+      StringStruct('FileDescription', 'Gladius - keyboard-driven wallpaper picker'),
+      StringStruct('FileVersion', '{version}'),
+      StringStruct('InternalName', 'gladius'),
+      StringStruct('LegalCopyright', 'Copyright (c) 2026 Brian Gomez. MIT licensed.'),
+      StringStruct('OriginalFilename', 'gladius.exe'),
+      StringStruct('ProductName', 'Gladius'),
+      StringStruct('ProductVersion', '{version}')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])])
+""", encoding="utf-8")
+    return path
+
+
+def run_pyinstaller(version: str) -> Path:
     icon = ROOT / "packaging" / "gladius.ico"
     cmd = [
         sys.executable, "-m", "PyInstaller",
@@ -52,6 +81,7 @@ def run_pyinstaller() -> Path:
         "--distpath", str(DIST),
         "--workpath", str(BUILD),
         "--specpath", str(BUILD),
+        "--version-file", str(write_version_file(version)),
     ]
     if icon.exists():
         cmd += ["--icon", str(icon)]
@@ -95,7 +125,7 @@ def main() -> int:
     version = read_version()
     print(f"building gladius {version}")
 
-    bundle = run_pyinstaller()
+    bundle = run_pyinstaller(version)
     zip_path = make_zip(bundle, version)
     digest = sha256(zip_path)
     (DIST / f"{zip_path.name}.sha256").write_text(
