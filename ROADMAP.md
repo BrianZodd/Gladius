@@ -86,12 +86,16 @@ already verified, so the pass is a confirmation rather than a re-investigation.
 - [ ] `LICENSE` (MIT) present; README complete for a stranger (install, keys, config
       reference, whkd/komorebi guide, hyprquickpaper credit).
       → *Done — README's config table checked key-by-key against `Config` in `gladius.py`.*
-- [ ] Grep-audit: no personal data anywhere in tracked files **or git history**.
-      → *Tracked tree is clean: `gladius.py`, `test_gladius.py`, `README.md` and
-      `AGENTS.md` have zero hits; the remainder sit in `LICENSE` (copyright) and the
-      private-history docs. **Git history is NOT clean** — the planning commit still
-      carries `SPEC.md`/`BLUEPRINT.md` with personal references. Squash or rewrite
-      history before flipping public.*
+- [ ] Grep-audit: no **machine-specific** data in tracked files **or git history**.
+      → *Two different things, worth not confusing:*
+      *(a) **Publisher identity is intended to be public** — `BrianZodd` and `Brian Gomez`
+      now appear on purpose in `LICENSE`, the winget manifests, the version resource and
+      every install URL. A published package has an author; these are not leaks.*
+      *(b) **Machine paths must be zero.** `git grep -inE "UserData|Projects|C:\\Users"`
+      over the tracked tree returns nothing.*
+      → ***Git history is still NOT clean*** *— the planning commit carries `SPEC.md` and
+      `BLUEPRINT.md` with 12 machine-path references. This is the one real item left;
+      rewrite or squash before flipping public.*
 - [ ] Temporary scaffolds distilled and deleted.
       → *Done — removed in `stage 9`; their essence lives in ARCHIVE.md / DECISIONS.md.*
 - [ ] A fresh-machine smoke test: unzip the built bundle on a second machine and run it —
