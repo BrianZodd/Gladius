@@ -92,11 +92,10 @@ already verified, so the pass is a confirmation rather than a re-investigation.
       *(a) **Publisher identity is intended to be public** — `BrianZodd` and `Brian Gomez`
       now appear on purpose in `LICENSE`, the winget manifests, the version resource and
       every install URL. A published package has an author; these are not leaks.*
-      *(b) **Machine paths must be zero.** `git grep -inE "UserData|Projects|C:\\Users"`
-      over the tracked tree returns nothing.*
-      → ***Git history is still NOT clean*** *— the planning commit carries `SPEC.md` and
-      `BLUEPRINT.md` with 12 machine-path references. This is the one real item left;
-      rewrite or squash before flipping public.*
+      *(b) **Machine paths must be zero** — in the tracked tree AND every commit.*
+      → *Done 2026-10-02 — history rewritten with `git filter-repo --replace-text` (machine
+      paths replaced by placeholders in every commit), repo recreated so no pre-rewrite SHA
+      is reachable; gitleaks + the known-secret pass clean over full history.*
 - [ ] Temporary scaffolds distilled and deleted.
       → *Done — removed in `stage 9`; their essence lives in ARCHIVE.md / DECISIONS.md.*
 - [ ] A fresh-machine smoke test: unzip the built bundle on a second machine and run it —

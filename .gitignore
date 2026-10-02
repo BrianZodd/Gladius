@@ -4,3 +4,18 @@ __pycache__/
 build/
 dist/
 packaging/icon-preview-*.png
+
+# secrets and local state never published
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+.claude/
+.vscode/
+.idea/
+*.log
+.pytest_cache/
+.coverage
+Thumbs.db
