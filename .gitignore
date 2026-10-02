@@ -19,3 +19,4 @@ packaging/icon-preview-*.png
 .pytest_cache/
 .coverage
 Thumbs.db
+.local/
